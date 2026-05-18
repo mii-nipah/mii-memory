@@ -3,11 +3,14 @@ use std::io::{BufRead, Write};
 use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 use crate::model::{ExpirationCondition, MemoryMode};
 use crate::store::{MemoryStore, SearchOptions, SetMemory, infer_mode_ref};
 
 pub fn serve(mut store: MemoryStore, input: impl BufRead, mut output: impl Write) -> Result<()> {
+    let context = ServerContext::new();
+
     for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -16,12 +19,12 @@ pub fn serve(mut store: MemoryStore, input: impl BufRead, mut output: impl Write
 
         let request: Value = serde_json::from_str(&line).context("failed to parse JSON request")?;
         if request.get("jsonrpc").is_some() {
-            if let Some(response) = handle_json_rpc(&mut store, request)? {
+            if let Some(response) = handle_json_rpc(&mut store, &context, request)? {
                 writeln!(output, "{}", response)?;
                 output.flush()?;
             }
         } else {
-            let response = handle_direct_command(&mut store, request)?;
+            let response = handle_direct_command(&mut store, &context, request)?;
             writeln!(output, "{}", response)?;
             output.flush()?;
         }
@@ -30,7 +33,23 @@ pub fn serve(mut store: MemoryStore, input: impl BufRead, mut output: impl Write
     Ok(())
 }
 
-fn handle_direct_command(store: &mut MemoryStore, request: Value) -> Result<Value> {
+struct ServerContext {
+    session_ref: String,
+}
+
+impl ServerContext {
+    fn new() -> Self {
+        Self {
+            session_ref: Uuid::new_v4().to_string(),
+        }
+    }
+}
+
+fn handle_direct_command(
+    store: &mut MemoryStore,
+    context: &ServerContext,
+    request: Value,
+) -> Result<Value> {
     let command = request
         .get("command")
         .or_else(|| request.get("method"))
@@ -39,10 +58,14 @@ fn handle_direct_command(store: &mut MemoryStore, request: Value) -> Result<Valu
         .ok_or_else(|| anyhow!("MCP request requires command or method"))?;
 
     let arguments = request.get("arguments").cloned().unwrap_or(request);
-    invoke_command(store, &command, arguments)
+    invoke_command(store, context, &command, arguments)
 }
 
-fn handle_json_rpc(store: &mut MemoryStore, request: Value) -> Result<Option<Value>> {
+fn handle_json_rpc(
+    store: &mut MemoryStore,
+    context: &ServerContext,
+    request: Value,
+) -> Result<Option<Value>> {
     let id = request.get("id").cloned();
     let method = request
         .get("method")
@@ -73,7 +96,7 @@ fn handle_json_rpc(store: &mut MemoryStore, request: Value) -> Result<Option<Val
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let command_result = invoke_command(store, name, arguments)?;
+            let command_result = invoke_command(store, context, name, arguments)?;
             json!({
                 "content": [{
                     "type": "text",
@@ -84,6 +107,7 @@ fn handle_json_rpc(store: &mut MemoryStore, request: Value) -> Result<Option<Val
         }
         other => invoke_command(
             store,
+            context,
             other,
             request.get("params").cloned().unwrap_or_else(|| json!({})),
         )?,
@@ -96,11 +120,16 @@ fn handle_json_rpc(store: &mut MemoryStore, request: Value) -> Result<Option<Val
     })))
 }
 
-fn invoke_command(store: &mut MemoryStore, command: &str, arguments: Value) -> Result<Value> {
+fn invoke_command(
+    store: &mut MemoryStore,
+    context: &ServerContext,
+    command: &str,
+    arguments: Value,
+) -> Result<Value> {
     match command {
         "memory_set" | "set" => {
             let input: MemorySetPayload = serde_json::from_value(arguments)?;
-            let mode_ref = infer_mode_ref(input.mode, None)?;
+            let mode_ref = infer_mcp_mode_ref(context, input.mode)?;
             let id = store.set(SetMemory {
                 content: input.content,
                 mode: input.mode,
@@ -114,6 +143,11 @@ fn invoke_command(store: &mut MemoryStore, command: &str, arguments: Value) -> R
         }
         "memory_get" | "get" => {
             let input: MemoryGetPayload = serde_json::from_value(arguments)?;
+            let mode_ref = input
+                .mode
+                .map(|mode| infer_mcp_mode_ref(context, mode))
+                .transpose()?
+                .flatten();
             let results = store.get(SearchOptions {
                 query: input.query,
                 positive_tags: input.positive_tags.unwrap_or_default(),
@@ -121,7 +155,7 @@ fn invoke_command(store: &mut MemoryStore, command: &str, arguments: Value) -> R
                 limit: input.limit.unwrap_or(10),
                 offset: input.offset.unwrap_or(0),
                 mode: input.mode,
-                mode_ref: None,
+                mode_ref,
             })?;
             Ok(json!({ "memories": results }))
         }
@@ -131,12 +165,12 @@ fn invoke_command(store: &mut MemoryStore, command: &str, arguments: Value) -> R
         }
         "alert_set" | "alert-set" => {
             let input: AlertSetPayload = serde_json::from_value(arguments)?;
-            let id = store.set_alert(infer_alert_session_ref(input.session_ref)?, input.content)?;
+            let id = store.set_alert(context.session_ref.clone(), input.content)?;
             Ok(json!({ "id": id }))
         }
         "alerts_get" | "alerts-get" | "alerts" => {
-            let input: AlertsGetPayload = serde_json::from_value(arguments)?;
-            let alerts = store.get_alerts(infer_alert_session_ref(input.session_ref)?)?;
+            let _: AlertsGetPayload = serde_json::from_value(arguments)?;
+            let alerts = store.get_alerts(context.session_ref.clone())?;
             Ok(json!({ "alerts": alerts }))
         }
         other => Err(anyhow!("unsupported MCP command: {other}")),
@@ -210,17 +244,12 @@ fn tool_definitions() -> Value {
     ])
 }
 
-fn infer_alert_session_ref(explicit: Option<String>) -> Result<String> {
-    if let Some(explicit) = explicit
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        return Ok(explicit);
+fn infer_mcp_mode_ref(context: &ServerContext, mode: MemoryMode) -> Result<Option<String>> {
+    match mode {
+        MemoryMode::Global => Ok(None),
+        MemoryMode::Workspace => infer_mode_ref(mode, None),
+        MemoryMode::Session => Ok(Some(context.session_ref.clone())),
     }
-
-    Ok(std::env::var("MII_MEMORY_SESSION")
-        .or_else(|_| std::env::var("MCP_SESSION_ID"))
-        .unwrap_or_else(|_| "default".to_string()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,12 +291,49 @@ struct ListTagsPayload {
 #[derive(Debug, Deserialize)]
 struct AlertSetPayload {
     content: String,
-    #[serde(default)]
-    session_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct AlertsGetPayload {
-    #[serde(default)]
-    session_ref: Option<String>,
+struct AlertsGetPayload {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_alerts_use_process_session_and_expire_on_read() -> Result<()> {
+        let store = MemoryStore::in_memory()?;
+        let input = br#"
+{"command":"alert_set","arguments":{"content":"remember this"}}
+{"command":"alerts_get","arguments":{}}
+{"command":"alerts_get","arguments":{}}
+"#;
+        let mut output = Vec::new();
+
+        serve(store, &input[..], &mut output)?;
+
+        let lines = String::from_utf8(output)?
+            .lines()
+            .map(serde_json::from_str::<Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[1]["alerts"][0]["content"], "remember this");
+        assert_eq!(lines[2]["alerts"].as_array().unwrap().len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn mcp_session_memories_are_scoped_to_process_session() -> Result<()> {
+        let context = ServerContext {
+            session_ref: "test-session".to_string(),
+        };
+
+        assert_eq!(
+            infer_mcp_mode_ref(&context, MemoryMode::Session)?,
+            Some("test-session".to_string())
+        );
+        assert_eq!(infer_mcp_mode_ref(&context, MemoryMode::Global)?, None);
+        Ok(())
+    }
 }
