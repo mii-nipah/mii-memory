@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod embedding;
 pub mod expiration;
+pub mod explorer;
 pub mod mcp;
 pub mod model;
 pub mod store;

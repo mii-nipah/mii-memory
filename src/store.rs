@@ -83,6 +83,40 @@ pub struct TagSummary {
     pub count: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryEntry {
+    pub id: i64,
+    pub content: String,
+    pub mode: MemoryMode,
+    pub mode_ref: Option<String>,
+    pub tags: Vec<String>,
+    pub positive_score: f32,
+    pub negative_score: f32,
+    pub usage_count: i64,
+    pub metadata: Option<String>,
+    pub expiration_condition: Option<ExpirationCondition>,
+    pub expiration_value: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct BrowseOptions {
+    pub text: Option<String>,
+    pub tags: Vec<String>,
+    pub mode: Option<MemoryMode>,
+    pub limit: usize,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Eq, PartialEq)]
+pub struct StoreSignature {
+    pub memory_count: i64,
+    pub max_memory_id: i64,
+    pub last_updated_at: Option<String>,
+    pub alert_count: i64,
+    pub max_alert_id: i64,
+}
+
 impl MemoryStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
@@ -313,6 +347,113 @@ impl MemoryStore {
         )?;
         transaction.commit()?;
         Ok(alerts)
+    }
+
+    pub fn browse(&self, options: BrowseOptions) -> Result<Vec<MemoryEntry>> {
+        let now = Utc::now();
+        let text_filter = options
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_ascii_lowercase);
+        let tag_filter = normalize_tags(&options.tags);
+        let limit = if options.limit == 0 {
+            50
+        } else {
+            options.limit
+        };
+
+        let mut entries = Vec::new();
+        for memory in self.load_memories()? {
+            if memory.is_expired(now) {
+                continue;
+            }
+
+            if let Some(mode) = options.mode
+                && memory.mode != mode
+            {
+                continue;
+            }
+
+            if !tag_filter
+                .iter()
+                .all(|tag| memory.tags.iter().any(|memory_tag| memory_tag == tag))
+            {
+                continue;
+            }
+
+            if let Some(text) = &text_filter {
+                let content_match = memory.content.to_ascii_lowercase().contains(text);
+                let tag_match = memory
+                    .tags
+                    .iter()
+                    .any(|tag| tag.to_ascii_lowercase().contains(text));
+                let metadata_match = memory
+                    .metadata
+                    .as_deref()
+                    .is_some_and(|metadata| metadata.to_ascii_lowercase().contains(text));
+
+                if !content_match && !tag_match && !metadata_match {
+                    continue;
+                }
+            }
+
+            entries.push(MemoryEntry {
+                id: memory.id,
+                content: memory.content,
+                mode: memory.mode,
+                mode_ref: memory.mode_ref,
+                tags: memory.tags,
+                positive_score: memory.positive_score,
+                negative_score: memory.negative_score,
+                usage_count: memory.usage_count,
+                metadata: memory.metadata,
+                expiration_condition: memory.expiration_condition,
+                expiration_value: memory.expiration_value,
+                created_at: memory.created_at,
+            });
+        }
+
+        entries.sort_by(|left, right| {
+            right
+                .created_at
+                .cmp(&left.created_at)
+                .then_with(|| right.id.cmp(&left.id))
+        });
+
+        Ok(entries
+            .into_iter()
+            .skip(options.offset)
+            .take(limit)
+            .collect())
+    }
+
+    pub fn signature(&self) -> Result<StoreSignature> {
+        let (memory_count, max_memory_id, last_updated_at) = self.connection.query_row(
+            "SELECT COUNT(*), COALESCE(MAX(id), 0), MAX(updated_at) FROM memories",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )?;
+        let (alert_count, max_alert_id) = self.connection.query_row(
+            "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM alerts",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )?;
+
+        Ok(StoreSignature {
+            memory_count,
+            max_memory_id,
+            last_updated_at,
+            alert_count,
+            max_alert_id,
+        })
     }
 
     fn migrate(&mut self) -> Result<()> {

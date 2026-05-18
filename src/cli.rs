@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 
+use crate::explorer;
 use crate::mcp;
 use crate::model::{ExpirationCondition, MemoryMode};
 use crate::store::{MemoryStore, SearchOptions, SetMemory, default_database_path};
@@ -28,6 +29,7 @@ enum Command {
     Alert(AlertCommand),
     Alerts(AlertsCommand),
     Mcp,
+    Explorer(ExplorerCommand),
 }
 
 #[derive(Debug, Parser)]
@@ -108,6 +110,15 @@ struct ListTagsCommand {
     json: bool,
 }
 
+#[derive(Debug, Parser)]
+struct ExplorerCommand {
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+
+    #[arg(long, default_value_t = 4117)]
+    port: u16,
+}
+
 #[derive(Debug, Serialize)]
 struct SetOutput {
     id: i64,
@@ -153,6 +164,10 @@ pub fn run() -> Result<()> {
             let input = BufReader::new(io::stdin().lock());
             let output = io::stdout().lock();
             mcp::serve(store, input, output)?;
+        }
+        Command::Explorer(command) => {
+            drop(store);
+            explorer::serve(database_path, &command.host, command.port)?;
         }
     }
 

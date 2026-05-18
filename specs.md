@@ -75,3 +75,8 @@ Differently from the CLI, the MCP commands should not contain explicit reference
 * `list_tags`
 * `alert_set`
 * `alerts_get`
+
+## explorer
+mii-memory also comes with a cool web explorer that allows you to easily navigate through your memories, filter them, see their content and metadata, and generally have a nice interface to interact with your memory store.
+
+You can run it with `mii-memory explorer` and it will start a local web server that you can access through your browser. The explorer also supports real-time updates, so if you have it open while your agents are interacting with the memory store, you'll see the changes reflected in real-time.
