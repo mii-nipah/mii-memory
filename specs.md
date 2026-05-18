@@ -37,7 +37,7 @@ Agents are recommended to chose freely the best tags for their files, which make
 
 ## search
 In query time, agents can then list available tags, filter them, filter by text directly or even both, and then receive what it's most relevant for them.
-We also embed a very small CPU optimized version of the popular MiniLM model, and while storing data we create vector embeddings for the content and the tags, so at query time the results are not only filtered by precise matches, but also by semantic similarity.
+We also embed (binary) a very small CPU optimized version of the popular MiniLM model, and while storing data we create vector embeddings for the content and the tags, so at query time the results are not only filtered by precise matches, but also by semantic similarity.
 It's also possible to use tags to negatively filter results, for example by including a tag in the negative filter, all memories with that tag will score lower in the results, thus being only found in the end of the results or not at all if limited.
 
 ## relevance
@@ -62,6 +62,9 @@ mii-memory is both a unix-like CLI tool and an MCP (Model Context Protocol), whi
 * `mii-memory list-tags [--filter <filter>]`
 * `mii-memory alert set <session_ref> <content>`
 * `mii-memory alerts <session_ref>`
+
+## configuration
+* `--db <path>` or `MII_MEMORY_DB_PATH=<path>`: specify the path to the sqlite database file. If not specified, it defaults to `.mii-memory.db` in the current directory.
 
 ## mcp
 mii-memory can also run as a service that agents can interact with through the MCP protocol.
