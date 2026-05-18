@@ -25,7 +25,31 @@ enum Command {
     Set(SetCommand),
     Get(GetCommand),
     ListTags(ListTagsCommand),
+    Alert(AlertCommand),
+    Alerts(AlertsCommand),
     Mcp,
+}
+
+#[derive(Debug, Parser)]
+struct AlertCommand {
+    #[command(subcommand)]
+    command: AlertSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum AlertSubcommand {
+    Set(AlertSetCommand),
+}
+
+#[derive(Debug, Parser)]
+struct AlertSetCommand {
+    session_ref: String,
+    content: String,
+}
+
+#[derive(Debug, Parser)]
+struct AlertsCommand {
+    session_ref: String,
 }
 
 #[derive(Debug, Parser)]
@@ -112,6 +136,17 @@ pub fn run() -> Result<()> {
                 } else {
                     println!("{}", tag.tag);
                 }
+            }
+        }
+        Command::Alert(command) => match command.command {
+            AlertSubcommand::Set(command) => {
+                let id = store.set_alert(command.session_ref, command.content)?;
+                println!("{}", serde_json::to_string(&SetOutput { id })?);
+            }
+        },
+        Command::Alerts(command) => {
+            for alert in store.get_alerts(command.session_ref)? {
+                println!("{}", serde_json::to_string(&alert)?);
             }
         }
         Command::Mcp => {

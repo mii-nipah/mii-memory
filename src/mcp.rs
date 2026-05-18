@@ -129,6 +129,16 @@ fn invoke_command(store: &mut MemoryStore, command: &str, arguments: Value) -> R
             let input: ListTagsPayload = serde_json::from_value(arguments)?;
             Ok(json!({ "tags": store.list_tags(input.filter.as_deref())? }))
         }
+        "alert_set" | "alert-set" => {
+            let input: AlertSetPayload = serde_json::from_value(arguments)?;
+            let id = store.set_alert(infer_alert_session_ref(input.session_ref)?, input.content)?;
+            Ok(json!({ "id": id }))
+        }
+        "alerts_get" | "alerts-get" | "alerts" => {
+            let input: AlertsGetPayload = serde_json::from_value(arguments)?;
+            let alerts = store.get_alerts(infer_alert_session_ref(input.session_ref)?)?;
+            Ok(json!({ "alerts": alerts }))
+        }
         other => Err(anyhow!("unsupported MCP command: {other}")),
     }
 }
@@ -177,8 +187,40 @@ fn tool_definitions() -> Value {
                     "filter": { "type": "string" }
                 }
             }
+        },
+        {
+            "name": "alert_set",
+            "description": "Store a one-shot alert for the current agent session.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "content": { "type": "string" }
+                },
+                "required": ["content"]
+            }
+        },
+        {
+            "name": "alerts_get",
+            "description": "Return and clear one-shot alerts for the current agent session.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
         }
     ])
+}
+
+fn infer_alert_session_ref(explicit: Option<String>) -> Result<String> {
+    if let Some(explicit) = explicit
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(explicit);
+    }
+
+    Ok(std::env::var("MII_MEMORY_SESSION")
+        .or_else(|_| std::env::var("MCP_SESSION_ID"))
+        .unwrap_or_else(|_| "default".to_string()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,4 +257,17 @@ struct MemoryGetPayload {
 struct ListTagsPayload {
     #[serde(default)]
     filter: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlertSetPayload {
+    content: String,
+    #[serde(default)]
+    session_ref: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlertsGetPayload {
+    #[serde(default)]
+    session_ref: Option<String>,
 }

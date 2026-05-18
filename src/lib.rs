@@ -6,4 +6,4 @@ pub mod model;
 pub mod store;
 
 pub use model::{ExpirationCondition, MemoryMode};
-pub use store::{MemoryStore, SearchOptions, SetMemory};
+pub use store::{Alert, MemoryStore, SearchOptions, SetMemory};

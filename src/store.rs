@@ -13,7 +13,7 @@ use crate::embedding::{blend, cosine_similarity, decode_embedding, embed_text, e
 use crate::expiration::{fingerprint_for_condition, is_expired, validate_expiration};
 use crate::model::{ExpirationCondition, MemoryMode, normalize_tags};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const SIMILAR_MEMORY_THRESHOLD: f32 = 0.72;
 
 pub struct MemoryStore {
@@ -40,6 +40,12 @@ pub struct SearchOptions {
     pub offset: usize,
     pub mode: Option<MemoryMode>,
     pub mode_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Alert {
+    pub session_ref: String,
+    pub content: String,
 }
 
 impl Default for SearchOptions {
@@ -263,6 +269,47 @@ impl MemoryStore {
             .collect())
     }
 
+    pub fn set_alert(
+        &mut self,
+        session_ref: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Result<i64> {
+        let session_ref = normalize_required_text(session_ref.into(), "alert session_ref")?;
+        let content = normalize_required_text(content.into(), "alert content")?;
+
+        self.connection.execute(
+            "INSERT INTO alerts (session_ref, content) VALUES (?1, ?2)",
+            params![session_ref, content],
+        )?;
+
+        Ok(self.connection.last_insert_rowid())
+    }
+
+    pub fn get_alerts(&mut self, session_ref: impl Into<String>) -> Result<Vec<Alert>> {
+        let session_ref = normalize_required_text(session_ref.into(), "alert session_ref")?;
+        let transaction = self.connection.transaction()?;
+        let alerts = {
+            let mut statement = transaction.prepare(
+                "SELECT session_ref, content FROM alerts WHERE session_ref = ?1 ORDER BY id",
+            )?;
+            let rows = statement.query_map(params![session_ref], |row| {
+                Ok(Alert {
+                    session_ref: row.get(0)?,
+                    content: row.get(1)?,
+                })
+            })?;
+
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+
+        transaction.execute(
+            "DELETE FROM alerts WHERE session_ref = ?1",
+            params![session_ref],
+        )?;
+        transaction.commit()?;
+        Ok(alerts)
+    }
+
     fn migrate(&mut self) -> Result<()> {
         self.connection.pragma_update(None, "foreign_keys", "ON")?;
         let version: i64 = self
@@ -308,6 +355,25 @@ impl MemoryStore {
                 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(mode, mode_ref);
                 CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag);
                 PRAGMA user_version = 1;",
+            )?;
+            transaction.commit()?;
+        }
+
+        let version: i64 = self
+            .connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))?;
+
+        if version == 1 {
+            let transaction = self.connection.transaction()?;
+            transaction.execute_batch(
+                "CREATE TABLE IF NOT EXISTS alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_ref TEXT NOT NULL,
+                    content TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_alerts_session_ref ON alerts(session_ref, id);
+                PRAGMA user_version = 2;",
             )?;
             transaction.commit()?;
         }
@@ -486,6 +552,15 @@ fn normalize_set_memory(mut input: SetMemory) -> Result<SetMemory> {
     Ok(input)
 }
 
+fn normalize_required_text(mut value: String, field: &'static str) -> Result<String> {
+    value = value.trim().to_string();
+    if value.is_empty() {
+        bail!("{field} cannot be empty");
+    }
+
+    Ok(value)
+}
+
 fn normalize_search_options(mut options: SearchOptions) -> SearchOptions {
     options.query = options.query.trim().to_string();
     options.positive_tags = normalize_tags(&options.positive_tags);
@@ -660,6 +735,24 @@ mod tests {
                 })?
                 .is_empty()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn alerts_are_session_scoped_and_one_shot() -> Result<()> {
+        let mut store = MemoryStore::in_memory()?;
+        store.set_alert("session-a", "remember the summary")?;
+        store.set_alert("session-b", "other session")?;
+
+        let first = store.get_alerts("session-a")?;
+        let second = store.get_alerts("session-a")?;
+        let other = store.get_alerts("session-b")?;
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].content, "remember the summary");
+        assert!(second.is_empty());
+        assert_eq!(other.len(), 1);
+        assert_eq!(other[0].content, "other session");
         Ok(())
     }
 }
