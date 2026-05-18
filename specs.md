@@ -64,7 +64,7 @@ mii-memory is both a unix-like CLI tool and an MCP (Model Context Protocol), whi
 * `mii-memory alerts <session_ref>`
 
 ## configuration
-* `--db <path>` or `MII_MEMORY_DB_PATH=<path>`: specify the path to the sqlite database file. If not specified, it defaults to `.mii-memory.db` in the current directory.
+* `--db <path>` or `MII_MEMORY_DB=<path>`: specify the path to the sqlite database file. If not specified, it defaults to `.mii-memory.db` in the current directory.
 
 ## mcp
 mii-memory can also run as a service that agents can interact with through the MCP protocol.
