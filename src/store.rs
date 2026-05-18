@@ -97,6 +97,8 @@ pub struct MemoryEntry {
     pub expiration_condition: Option<ExpirationCondition>,
     pub expiration_value: Option<String>,
     pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relevance: Option<f32>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -356,7 +358,13 @@ impl MemoryStore {
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty())
-            .map(str::to_ascii_lowercase);
+            .map(str::to_string);
+        let lowered_text = text_filter.as_deref().map(str::to_ascii_lowercase);
+        let query_embedding = text_filter
+            .as_deref()
+            .map(embed_text)
+            .transpose()
+            .context("failed to embed explorer query")?;
         let tag_filter = normalize_tags(&options.tags);
         let limit = if options.limit == 0 {
             50
@@ -364,7 +372,7 @@ impl MemoryStore {
             options.limit
         };
 
-        let mut entries = Vec::new();
+        let mut entries: Vec<(MemoryEntry, f32, DateTime<Utc>)> = Vec::new();
         for memory in self.load_memories()? {
             if memory.is_expired(now) {
                 continue;
@@ -383,8 +391,10 @@ impl MemoryStore {
                 continue;
             }
 
-            if let Some(text) = &text_filter {
-                let content_match = memory.content.to_ascii_lowercase().contains(text);
+            let mut relevance: Option<f32> = None;
+            if let Some(text) = &lowered_text {
+                let content_lower = memory.content.to_ascii_lowercase();
+                let content_match = content_lower.contains(text);
                 let tag_match = memory
                     .tags
                     .iter()
@@ -394,12 +404,28 @@ impl MemoryStore {
                     .as_deref()
                     .is_some_and(|metadata| metadata.to_ascii_lowercase().contains(text));
 
-                if !content_match && !tag_match && !metadata_match {
+                let semantic = query_embedding
+                    .as_deref()
+                    .map(|embedding| cosine_similarity(embedding, &memory.combined_embedding))
+                    .unwrap_or(0.0);
+                let text_bonus = if content_match {
+                    0.2
+                } else if tag_match || metadata_match {
+                    0.1
+                } else {
+                    0.0
+                };
+                let score = semantic + text_bonus;
+
+                if !content_match && !tag_match && !metadata_match && semantic < 0.25 {
                     continue;
                 }
+
+                relevance = Some(score.clamp(0.0, 1.2));
             }
 
-            entries.push(MemoryEntry {
+            let created_at = memory.created_at;
+            let entry = MemoryEntry {
                 id: memory.id,
                 content: memory.content,
                 mode: memory.mode,
@@ -411,21 +437,35 @@ impl MemoryStore {
                 metadata: memory.metadata,
                 expiration_condition: memory.expiration_condition,
                 expiration_value: memory.expiration_value,
-                created_at: memory.created_at,
-            });
+                created_at,
+                relevance,
+            };
+            let sort_score = relevance.unwrap_or(0.0);
+            entries.push((entry, sort_score, created_at));
         }
 
-        entries.sort_by(|left, right| {
-            right
-                .created_at
-                .cmp(&left.created_at)
-                .then_with(|| right.id.cmp(&left.id))
-        });
+        if text_filter.is_some() {
+            entries.sort_by(|left, right| {
+                right
+                    .1
+                    .partial_cmp(&left.1)
+                    .unwrap_or(Ordering::Equal)
+                    .then_with(|| right.2.cmp(&left.2))
+            });
+        } else {
+            entries.sort_by(|left, right| {
+                right
+                    .2
+                    .cmp(&left.2)
+                    .then_with(|| right.0.id.cmp(&left.0.id))
+            });
+        }
 
         Ok(entries
             .into_iter()
             .skip(options.offset)
             .take(limit)
+            .map(|(entry, _, _)| entry)
             .collect())
     }
 

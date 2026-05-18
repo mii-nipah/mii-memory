@@ -4,225 +4,464 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>mii-memory explorer</title>
+<link rel="preconnect" href="https://rsms.me/" />
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0f1115;
-    --panel: #161a22;
+    --bg: #0b0d12;
+    --bg-soft: #11141b;
+    --panel: #161a23;
     --panel-2: #1c2230;
-    --border: #2a3142;
-    --text: #e6e9ef;
-    --muted: #8b93a7;
-    --accent: #6ea8ff;
-    --tag-bg: #233149;
-    --tag-text: #b8cdff;
-    --positive: #6ddf9d;
-    --negative: #ff8a8a;
+    --panel-3: #232a3b;
+    --border: #242b3a;
+    --border-strong: #2f3a52;
+    --text: #e7eaf3;
+    --muted: #8a93a8;
+    --muted-soft: #5b6379;
+    --accent: #7aa2ff;
+    --accent-soft: #2a3a66;
+    --accent-glow: rgba(122, 162, 255, 0.18);
+    --tag-bg: #1f2a44;
+    --tag-text: #c3d3ff;
+    --tag-active-bg: #3a5cb0;
+    --tag-active-text: #ffffff;
+    --positive: #62d49a;
+    --negative: #ff8b8b;
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.03), 0 8px 24px rgba(0, 0, 0, 0.35);
+    --radius: 10px;
+    --radius-sm: 6px;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-feature-settings: "cv11", "ss03", "ss02";
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, sans-serif;
-    background: var(--bg);
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(122, 162, 255, 0.08), transparent 60%),
+      radial-gradient(900px 500px at 90% 110%, rgba(98, 212, 154, 0.05), transparent 60%),
+      var(--bg);
     color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  header {
+  button, input, select { font: inherit; color: inherit; }
+
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "topbar topbar"
+      "sidebar main";
+    min-height: 100vh;
+  }
+  .topbar {
+    grid-area: topbar;
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
+    gap: 16px;
+    padding: 12px 20px;
     border-bottom: 1px solid var(--border);
-    background: var(--panel);
+    background: rgba(11, 13, 18, 0.85);
+    backdrop-filter: blur(12px);
     position: sticky;
     top: 0;
-    z-index: 2;
+    z-index: 5;
   }
-  header h1 {
-    font-size: 1.05rem;
-    margin: 0;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-  header .status {
-    margin-left: auto;
-    font-size: 0.8rem;
-    color: var(--muted);
+  .brand {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 10px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
   }
-  header .dot {
-    width: 0.55rem;
-    height: 0.55rem;
+  .brand .logo {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #7aa2ff 0%, #62d49a 100%);
+    box-shadow: 0 0 18px var(--accent-glow);
+  }
+  .brand .subtitle { color: var(--muted); font-weight: 400; }
+  .topbar .spacer { flex: 1; }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .status .dot {
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    background: #6ddf9d;
-    box-shadow: 0 0 0.4rem #6ddf9d99;
+    background: var(--positive);
+    box-shadow: 0 0 10px rgba(98, 212, 154, 0.6);
+    animation: pulse 2s ease-in-out infinite;
   }
-  header .dot.offline { background: #ff8a8a; box-shadow: 0 0 0.4rem #ff8a8a99; }
-  main {
-    display: grid;
-    grid-template-columns: 18rem 1fr;
-    min-height: calc(100vh - 3rem);
+  .status.offline .dot { background: var(--negative); box-shadow: 0 0 10px rgba(255, 139, 139, 0.55); }
+  .stats {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    color: var(--muted);
+    font-size: 12px;
   }
+  .stats strong { color: var(--text); font-weight: 600; }
+
   aside {
-    padding: 1rem;
+    grid-area: sidebar;
     border-right: 1px solid var(--border);
-    background: var(--panel);
+    background: var(--bg-soft);
+    padding: 18px 16px;
+    overflow-y: auto;
+    max-height: calc(100vh - 49px);
+    position: sticky;
+    top: 49px;
   }
   aside h2 {
-    font-size: 0.75rem;
+    font-size: 11px;
     text-transform: uppercase;
-    color: var(--muted);
-    letter-spacing: 0.1em;
-    margin: 1.25rem 0 0.5rem;
+    letter-spacing: 0.12em;
+    color: var(--muted-soft);
+    margin: 18px 0 8px;
+    font-weight: 600;
   }
   aside h2:first-child { margin-top: 0; }
-  input[type="text"], select {
+  .field { position: relative; }
+  .field input, .field select {
     width: 100%;
-    padding: 0.5rem 0.6rem;
-    border-radius: 0.4rem;
-    background: var(--panel-2);
-    color: var(--text);
+    padding: 9px 12px 9px 34px;
+    border-radius: var(--radius-sm);
+    background: var(--panel);
     border: 1px solid var(--border);
-    font: inherit;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
   }
-  input[type="text"]:focus, select:focus { outline: 1px solid var(--accent); }
+  .field select { padding-left: 12px; }
+  .field input:focus, .field select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .field .icon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted-soft);
+    pointer-events: none;
+    width: 14px;
+    height: 14px;
+  }
+  .selected-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+  }
+  .selected-tags:empty { display: none; }
+  .selected-tags .tag {
+    cursor: pointer;
+    background: var(--tag-active-bg);
+    color: var(--tag-active-text);
+    padding: 2px 8px 2px 10px;
+  }
+  .selected-tags .tag::after { content: "  ×"; opacity: 0.75; margin-left: 2px; }
   .tag-list {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 2px;
     max-height: 50vh;
     overflow-y: auto;
+    margin: 6px -4px 0;
+    padding: 0 4px;
   }
   .tag-list button {
     text-align: left;
     background: transparent;
     border: 1px solid transparent;
     color: var(--text);
-    padding: 0.3rem 0.5rem;
-    border-radius: 0.3rem;
+    padding: 7px 10px;
+    border-radius: 6px;
     cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    font: inherit;
-  }
-  .tag-list button:hover { background: var(--panel-2); }
-  .tag-list button.active { background: var(--tag-bg); color: var(--tag-text); border-color: var(--accent); }
-  .tag-list .count { color: var(--muted); font-size: 0.8rem; }
-  section.results {
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    overflow-y: auto;
-  }
-  .memory {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    padding: 0.75rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-  .memory header {
-    background: transparent;
-    border: none;
-    padding: 0;
-    position: static;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 0.5rem;
+    gap: 8px;
+    transition: background 100ms ease, color 100ms ease;
   }
-  .memory .meta {
-    font-size: 0.78rem;
+  .tag-list button:hover { background: var(--panel); }
+  .tag-list button.active {
+    background: var(--accent-soft);
+    color: #dbe6ff;
+    border-color: var(--border-strong);
+  }
+  .tag-list .count {
     color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    background: var(--bg);
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  .tag-list button.active .count { color: #dbe6ff; background: var(--accent-soft); border-color: transparent; }
+
+  main {
+    grid-area: main;
+    padding: 22px 28px 60px;
+    overflow-y: auto;
+    max-height: calc(100vh - 49px);
+  }
+  .results-header {
     display: flex;
-    gap: 0.6rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .results-header .summary { color: var(--muted); font-size: 13px; }
+  .results-header .sort-hint { color: var(--muted-soft); font-size: 12px; }
+  .results-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .memory {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color 120ms ease;
+    box-shadow: var(--shadow);
+  }
+  .memory:hover { border-color: var(--border-strong); }
+  .memory.fresh { animation: fresh 1.4s ease-out; }
+  .memory .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
     flex-wrap: wrap;
   }
-  .memory .content { white-space: pre-wrap; line-height: 1.4; }
-  .memory .tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  .memory .meta {
+    color: var(--muted);
+    font-size: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .memory .meta .id {
+    color: var(--muted-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 11px;
+  }
+  .pill.mode-global { color: #c8d3ff; border-color: #2c3a66; background: #1a2440; }
+  .pill.mode-workspace { color: #c4e9c8; border-color: #2c5a3d; background: #18301f; }
+  .pill.mode-session { color: #ffd9a8; border-color: #5c3f1d; background: #2c1f10; }
+  .pill .ref {
+    color: var(--muted-soft);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .memory .scores {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .memory .scores .pos { color: var(--positive); }
+  .memory .scores .neg { color: var(--negative); }
+  .memory .relevance {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .memory .relevance .bar {
+    width: 90px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--panel-3);
+    overflow: hidden;
+  }
+  .memory .relevance .bar > span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent) 0%, #62d49a 100%);
+    box-shadow: 0 0 8px var(--accent-glow);
+    transition: width 200ms ease;
+  }
+  .memory .content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #f1f4fb;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .memory .tags { display: flex; flex-wrap: wrap; gap: 4px; }
   .tag {
     background: var(--tag-bg);
     color: var(--tag-text);
-    padding: 0.1rem 0.5rem;
+    padding: 2px 9px;
     border-radius: 999px;
-    font-size: 0.75rem;
+    font-size: 11.5px;
+    border: 1px solid transparent;
   }
-  .scores { display: flex; gap: 0.75rem; font-size: 0.78rem; }
-  .scores .pos { color: var(--positive); }
-  .scores .neg { color: var(--negative); }
-  .empty { color: var(--muted); text-align: center; margin-top: 2rem; }
-  .selected-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    margin-top: 0.5rem;
-  }
-  .selected-tags .tag {
-    cursor: pointer;
-  }
-  .selected-tags .tag::after { content: " ×"; opacity: 0.6; }
-  details > summary {
+  details summary {
     cursor: pointer;
     color: var(--muted);
-    font-size: 0.78rem;
+    font-size: 12px;
+    user-select: none;
+    list-style: none;
   }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 120ms ease;
+    color: var(--muted-soft);
+  }
+  details[open] summary::before { transform: rotate(90deg); }
   pre.metadata {
-    background: var(--panel-2);
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 0.4rem;
-    padding: 0.5rem;
-    font-size: 0.75rem;
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     overflow-x: auto;
-    margin: 0.3rem 0 0;
+    margin: 6px 0 0;
+    color: #c9d1e3;
+  }
+  .empty {
+    color: var(--muted);
+    text-align: center;
+    padding: 80px 0;
+    font-size: 14px;
+  }
+  .empty .hint { color: var(--muted-soft); font-size: 12px; margin-top: 6px; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #1d2433; border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: #2a334a; background-clip: padding-box; border: 2px solid transparent; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(0.85); }
+  }
+  @keyframes fresh {
+    0% { box-shadow: 0 0 0 0 var(--accent-glow); border-color: var(--accent); }
+    100% { box-shadow: var(--shadow); border-color: var(--border); }
+  }
+
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-areas: "topbar" "sidebar" "main"; }
+    aside { position: static; max-height: none; border-right: none; border-bottom: 1px solid var(--border); }
+    main { max-height: none; }
   }
 </style>
 </head>
 <body>
-<header>
-  <h1>mii-memory explorer</h1>
-  <div class="status"><span id="status-dot" class="dot"></span><span id="status-text">connecting…</span></div>
-</header>
-<main>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <span>mii-memory</span>
+      <span class="subtitle">· explorer</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="stats" id="stats"></div>
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">connecting…</span></div>
+  </div>
+
   <aside>
     <h2>Search</h2>
-    <input id="text-filter" type="text" placeholder="content, tag or metadata…" autocomplete="off" />
+    <div class="field">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="text-filter" type="text" placeholder="semantic search…" autocomplete="off" spellcheck="false" />
+    </div>
+
     <h2>Mode</h2>
-    <select id="mode-filter">
-      <option value="">all modes</option>
-      <option value="global">global</option>
-      <option value="workspace">workspace</option>
-      <option value="session">session</option>
-    </select>
-    <h2>Tags</h2>
-    <input id="tag-filter" type="text" placeholder="filter tags…" autocomplete="off" />
+    <div class="field">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg>
+      <select id="mode-filter">
+        <option value="">all modes</option>
+        <option value="global">global</option>
+        <option value="workspace">workspace</option>
+        <option value="session">session</option>
+      </select>
+    </div>
+
+    <h2>Selected tags</h2>
     <div class="selected-tags" id="selected-tags"></div>
+
+    <h2>Tags</h2>
+    <div class="field">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L11 3.83A2 2 0 0 0 9.59 3.24H4a1 1 0 0 0-1 1v5.59a2 2 0 0 0 .59 1.41l9.58 9.58a2 2 0 0 0 2.83 0l4.59-4.59a2 2 0 0 0 0-2.82z"/></svg>
+      <input id="tag-filter" type="text" placeholder="filter tags…" autocomplete="off" spellcheck="false" />
+    </div>
     <div class="tag-list" id="tag-list"></div>
   </aside>
-  <section class="results" id="results">
-    <p class="empty">loading…</p>
-  </section>
-</main>
+
+  <main>
+    <div class="results-header">
+      <div class="summary" id="summary">loading…</div>
+      <div class="sort-hint" id="sort-hint">sorted by recency</div>
+    </div>
+    <div class="results-list" id="results"></div>
+  </main>
+</div>
+
 <script>
   const state = {
     text: "",
     mode: "",
     selectedTags: new Set(),
     tagFilter: "",
+    lastIds: new Set(),
   };
 
+  const $ = (id) => document.getElementById(id);
   const elements = {
-    textFilter: document.getElementById("text-filter"),
-    modeFilter: document.getElementById("mode-filter"),
-    tagFilter: document.getElementById("tag-filter"),
-    selectedTags: document.getElementById("selected-tags"),
-    tagList: document.getElementById("tag-list"),
-    results: document.getElementById("results"),
-    statusDot: document.getElementById("status-dot"),
-    statusText: document.getElementById("status-text"),
+    textFilter: $("text-filter"),
+    modeFilter: $("mode-filter"),
+    tagFilter: $("tag-filter"),
+    selectedTags: $("selected-tags"),
+    tagList: $("tag-list"),
+    results: $("results"),
+    status: $("status"),
+    statusText: $("status-text"),
+    summary: $("summary"),
+    sortHint: $("sort-hint"),
+    stats: $("stats"),
   };
 
   const debounced = (fn, delay) => {
@@ -235,20 +474,29 @@
 
   const refresh = debounced(async () => {
     await Promise.all([loadTags(), loadMemories()]);
-  }, 120);
+  }, 160);
 
   const setStatus = (online, text) => {
-    elements.statusDot.classList.toggle("offline", !online);
+    elements.status.classList.toggle("offline", !online);
     elements.statusText.textContent = text;
   };
 
-  const escape = (text) => text.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "\"": "&quot;",
-    "'": "&#39;",
+  const escape = (text) => String(text).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;",
   }[character]));
+
+  const formatDate = (iso) => {
+    try {
+      const date = new Date(iso);
+      const now = new Date();
+      const diff = (now - date) / 1000;
+      if (diff < 60) return "just now";
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
+      return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    } catch { return iso; }
+  };
 
   const renderSelectedTags = () => {
     elements.selectedTags.innerHTML = "";
@@ -268,6 +516,15 @@
 
   const renderTags = (tags) => {
     elements.tagList.innerHTML = "";
+    if (tags.length === 0) {
+      const empty = document.createElement("div");
+      empty.style.color = "var(--muted-soft)";
+      empty.style.fontSize = "12px";
+      empty.style.padding = "8px 10px";
+      empty.textContent = "no tags";
+      elements.tagList.appendChild(empty);
+      return;
+    }
     for (const tag of tags) {
       const node = document.createElement("button");
       node.type = "button";
@@ -289,52 +546,91 @@
 
   const renderMemories = (memories) => {
     elements.results.innerHTML = "";
+
+    const newIds = new Set(memories.map((m) => m.id));
+    const fresh = new Set([...newIds].filter((id) => !state.lastIds.has(id)));
+    const hadPrevious = state.lastIds.size > 0;
+    state.lastIds = newIds;
+
+    elements.summary.textContent = memories.length === 0
+      ? "no memories"
+      : `${memories.length} memor${memories.length === 1 ? "y" : "ies"}`;
+
+    elements.sortHint.textContent = state.text
+      ? "sorted by semantic relevance"
+      : "sorted by recency";
+
     if (memories.length === 0) {
-      const empty = document.createElement("p");
+      const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "no memories match the current filters";
+      empty.innerHTML = `nothing matches the current filters<div class="hint">try removing a tag or clearing the search</div>`;
       elements.results.appendChild(empty);
       return;
     }
+
     for (const memory of memories) {
       const card = document.createElement("article");
       card.className = "memory";
+      if (hadPrevious && fresh.has(memory.id)) card.classList.add("fresh");
 
-      const head = document.createElement("header");
+      const head = document.createElement("div");
+      head.className = "head";
+
       const meta = document.createElement("div");
       meta.className = "meta";
+      const modeRef = memory.mode_ref
+        ? `<span class="ref">${escape(memory.mode_ref)}</span>`
+        : "";
       meta.innerHTML = `
-        <span>#${memory.id}</span>
-        <span>${escape(memory.mode)}${memory.mode_ref ? `/${escape(memory.mode_ref)}` : ""}</span>
-        <span>created ${new Date(memory.created_at).toLocaleString()}</span>
-        <span>usage ${memory.usage_count}</span>
-        ${memory.expiration_condition ? `<span>exp: ${escape(memory.expiration_condition)} = ${escape(memory.expiration_value || "")}</span>` : ""}
+        <span class="id">#${memory.id}</span>
+        <span class="pill mode-${escape(memory.mode)}">${escape(memory.mode)}${modeRef}</span>
+        <span title="${escape(memory.created_at)}">${formatDate(memory.created_at)}</span>
+        <span>· ${memory.usage_count} use${memory.usage_count === 1 ? "" : "s"}</span>
+        ${memory.expiration_condition
+          ? `<span class="pill">${escape(memory.expiration_condition)}: ${escape(memory.expiration_value || "")}</span>`
+          : ""}
       `;
-      const scores = document.createElement("div");
-      scores.className = "scores";
-      scores.innerHTML = `
-        <span class="pos">+${memory.positive_score.toFixed(2)}</span>
-        <span class="neg">-${memory.negative_score.toFixed(2)}</span>
-      `;
+
+      const right = document.createElement("div");
+      right.className = "scores";
+
+      if (typeof memory.relevance === "number") {
+        const rel = document.createElement("span");
+        rel.className = "relevance";
+        const percent = Math.max(4, Math.min(100, Math.round((memory.relevance / 1.2) * 100)));
+        rel.innerHTML = `<span class="bar"><span style="width:${percent}%"></span></span>${memory.relevance.toFixed(2)}`;
+        right.appendChild(rel);
+      }
+      const pos = document.createElement("span");
+      pos.className = "pos";
+      pos.textContent = `+${memory.positive_score.toFixed(2)}`;
+      const neg = document.createElement("span");
+      neg.className = "neg";
+      neg.textContent = `−${memory.negative_score.toFixed(2)}`;
+      right.appendChild(pos);
+      right.appendChild(neg);
+
       head.appendChild(meta);
-      head.appendChild(scores);
+      head.appendChild(right);
 
       const content = document.createElement("div");
       content.className = "content";
       content.textContent = memory.content;
 
-      const tags = document.createElement("div");
-      tags.className = "tags";
-      for (const tag of memory.tags) {
-        const node = document.createElement("span");
-        node.className = "tag";
-        node.textContent = tag;
-        tags.appendChild(node);
-      }
-
       card.appendChild(head);
       card.appendChild(content);
-      if (memory.tags.length > 0) card.appendChild(tags);
+
+      if (memory.tags.length > 0) {
+        const tags = document.createElement("div");
+        tags.className = "tags";
+        for (const tag of memory.tags) {
+          const node = document.createElement("span");
+          node.className = "tag";
+          node.textContent = tag;
+          tags.appendChild(node);
+        }
+        card.appendChild(tags);
+      }
 
       if (memory.metadata) {
         const details = document.createElement("details");
@@ -342,7 +638,11 @@
         summary.textContent = "metadata";
         const pre = document.createElement("pre");
         pre.className = "metadata";
-        pre.textContent = memory.metadata;
+        try {
+          pre.textContent = JSON.stringify(JSON.parse(memory.metadata), null, 2);
+        } catch {
+          pre.textContent = memory.metadata;
+        }
         details.appendChild(summary);
         details.appendChild(pre);
         card.appendChild(details);
@@ -350,6 +650,14 @@
 
       elements.results.appendChild(card);
     }
+  };
+
+  const renderStats = (signature) => {
+    if (!signature) { elements.stats.innerHTML = ""; return; }
+    elements.stats.innerHTML = `
+      <span><strong>${signature.memory_count}</strong> memories</span>
+      <span><strong>${signature.alert_count}</strong> alerts</span>
+    `;
   };
 
   const loadMemories = async () => {
@@ -361,6 +669,7 @@
     if (!response.ok) return;
     const data = await response.json();
     renderMemories(data.memories);
+    renderStats(data.signature);
   };
 
   const loadTags = async () => {
@@ -387,12 +696,8 @@
 
   const connect = () => {
     const events = new EventSource("/api/events");
-    events.addEventListener("update", () => {
-      refresh();
-    });
-    events.addEventListener("ready", () => {
-      setStatus(true, "live");
-    });
+    events.addEventListener("update", () => refresh());
+    events.addEventListener("ready", () => setStatus(true, "live"));
     events.onerror = () => {
       setStatus(false, "reconnecting…");
       events.close();
