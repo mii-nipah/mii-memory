@@ -1,6 +1,6 @@
 use std::io::{BufRead, Write};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -17,20 +17,51 @@ pub fn serve(mut store: MemoryStore, input: impl BufRead, mut output: impl Write
             continue;
         }
 
-        let request: Value = serde_json::from_str(&line).context("failed to parse JSON request")?;
+        let request: Value = match serde_json::from_str(&line) {
+            Ok(request) => request,
+            Err(error) => {
+                writeln!(
+                    output,
+                    "{}",
+                    json_rpc_error(
+                        None,
+                        -32700,
+                        format!("failed to parse JSON request: {error}")
+                    )
+                )?;
+                output.flush()?;
+                continue;
+            }
+        };
+
         if request.get("jsonrpc").is_some() {
-            if let Some(response) = handle_json_rpc(&mut store, &context, request)? {
+            let id = request.get("id").cloned();
+            let response = handle_json_rpc(&mut store, &context, request)
+                .unwrap_or_else(|error| Some(json_rpc_error(id, -32603, error.to_string())));
+            if let Some(response) = response {
                 writeln!(output, "{}", response)?;
                 output.flush()?;
             }
         } else {
-            let response = handle_direct_command(&mut store, &context, request)?;
+            let response = handle_direct_command(&mut store, &context, request)
+                .unwrap_or_else(|error| json!({ "error": error.to_string() }));
             writeln!(output, "{}", response)?;
             output.flush()?;
         }
     }
 
     Ok(())
+}
+
+fn json_rpc_error(id: Option<Value>, code: i64, message: String) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id.unwrap_or(Value::Null),
+        "error": {
+            "code": code,
+            "message": message,
+        },
+    })
 }
 
 struct ServerContext {
@@ -96,14 +127,22 @@ fn handle_json_rpc(
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let command_result = invoke_command(store, context, name, arguments)?;
-            json!({
-                "content": [{
-                    "type": "text",
-                    "text": serde_json::to_string(&command_result)?,
-                }],
-                "isError": false,
-            })
+            match invoke_command(store, context, name, arguments) {
+                Ok(command_result) => json!({
+                    "content": [{
+                        "type": "text",
+                        "text": serde_json::to_string(&command_result)?,
+                    }],
+                    "isError": false,
+                }),
+                Err(error) => json!({
+                    "content": [{
+                        "type": "text",
+                        "text": error.to_string(),
+                    }],
+                    "isError": true,
+                }),
+            }
         }
         other => invoke_command(
             store,
@@ -127,7 +166,7 @@ fn invoke_command(
     arguments: Value,
 ) -> Result<Value> {
     match command {
-        "memory_set" | "set" => {
+        "memory_set" => {
             let input: MemorySetPayload = serde_json::from_value(arguments)?;
             let mode_ref = infer_mcp_mode_ref(context, input.mode)?;
             let id = store.set(SetMemory {
@@ -141,8 +180,10 @@ fn invoke_command(
             })?;
             Ok(json!({ "id": id }))
         }
-        "memory_get" | "get" => {
+        "memory_get" => {
             let input: MemoryGetPayload = serde_json::from_value(arguments)?;
+            let positive_tags = input.positive_tags.clone();
+            let negative_tags = input.negative_tags.clone();
             let mode_ref = input
                 .mode
                 .map(|mode| infer_mcp_mode_ref(context, mode))
@@ -150,8 +191,8 @@ fn invoke_command(
                 .flatten();
             let results = store.get(SearchOptions {
                 query: input.query,
-                positive_tags: input.positive_tags.unwrap_or_default(),
-                negative_tags: input.negative_tags,
+                positive_tags,
+                negative_tags,
                 limit: input.limit.unwrap_or(10),
                 offset: input.offset.unwrap_or(0),
                 mode: input.mode,
@@ -159,16 +200,16 @@ fn invoke_command(
             })?;
             Ok(json!({ "memories": results }))
         }
-        "list_tags" | "list-tags" => {
+        "list_tags" => {
             let input: ListTagsPayload = serde_json::from_value(arguments)?;
             Ok(json!({ "tags": store.list_tags(input.filter.as_deref())? }))
         }
-        "alert_set" | "alert-set" => {
+        "alert_set" => {
             let input: AlertSetPayload = serde_json::from_value(arguments)?;
             let id = store.set_alert(context.session_ref.clone(), input.content)?;
             Ok(json!({ "id": id }))
         }
-        "alerts_get" | "alerts-get" | "alerts" => {
+        "alerts_get" => {
             let _: AlertsGetPayload = serde_json::from_value(arguments)?;
             let alerts = store.get_alerts(context.session_ref.clone())?;
             Ok(json!({ "alerts": alerts }))
@@ -202,9 +243,8 @@ fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string" },
-                    "tag": { "type": "array", "items": { "type": "string" } },
-                    "p_tag": { "type": "array", "items": { "type": "string" } },
-                    "n_tag": { "type": "array", "items": { "type": "string" } },
+                    "positive_tags": { "type": "array", "items": { "type": "string" } },
+                    "negative_tags": { "type": "array", "items": { "type": "string" } },
                     "limit": { "type": "integer", "minimum": 1 },
                     "offset": { "type": "integer", "minimum": 0 },
                     "mode": { "type": "string", "enum": ["global", "workspace", "session"] }
@@ -253,6 +293,7 @@ fn infer_mcp_mode_ref(context: &ServerContext, mode: MemoryMode) -> Result<Optio
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MemorySetPayload {
     content: String,
     #[serde(default)]
@@ -268,11 +309,12 @@ struct MemorySetPayload {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MemoryGetPayload {
     query: String,
-    #[serde(default, alias = "tag", alias = "p_tag", alias = "p-tag")]
-    positive_tags: Option<Vec<String>>,
-    #[serde(default, alias = "n_tag", alias = "n-tag")]
+    #[serde(default)]
+    positive_tags: Vec<String>,
+    #[serde(default)]
     negative_tags: Vec<String>,
     #[serde(default)]
     limit: Option<usize>,
@@ -283,17 +325,20 @@ struct MemoryGetPayload {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ListTagsPayload {
     #[serde(default)]
     filter: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AlertSetPayload {
     content: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AlertsGetPayload {}
 
 #[cfg(test)]
@@ -334,6 +379,50 @@ mod tests {
             Some("test-session".to_string())
         );
         assert_eq!(infer_mcp_mode_ref(&context, MemoryMode::Global)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn memory_get_rejects_cli_tag_aliases() -> Result<()> {
+        let mut store = MemoryStore::in_memory()?;
+        let context = ServerContext {
+            session_ref: "test-session".to_string(),
+        };
+        let arguments = json!({
+            "query": "health check",
+            "tag": ["rust"],
+            "p_tag": ["sqlite", "rust"],
+            "n_tag": [],
+            "mode": "session",
+            "limit": 5,
+            "offset": 0,
+        });
+
+        let error = invoke_command(&mut store, &context, "memory_get", arguments).unwrap_err();
+
+        assert!(error.to_string().contains("unknown field"));
+        Ok(())
+    }
+
+    #[test]
+    fn json_rpc_tool_errors_do_not_stop_server() -> Result<()> {
+        let store = MemoryStore::in_memory()?;
+        let input = br#"
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_get","arguments":{}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_tags","arguments":{}}}
+"#;
+        let mut output = Vec::new();
+
+        serve(store, &input[..], &mut output)?;
+
+        let lines = String::from_utf8(output)?
+            .lines()
+            .map(serde_json::from_str::<Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["result"]["isError"], true);
+        assert_eq!(lines[1]["result"]["isError"], false);
         Ok(())
     }
 }
