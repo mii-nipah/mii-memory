@@ -1,3 +1,4 @@
+use std::env;
 use std::io::{self, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -13,7 +14,7 @@ use crate::store::{MemoryStore, SearchOptions, SetMemory, default_database_path}
 #[derive(Debug, Parser)]
 #[command(version, about = "A smart memory management system for agents")]
 pub struct Cli {
-    #[arg(long, global = true, env = "MII_MEMORY_DB", value_name = "PATH")]
+    #[arg(long, global = true, env = "MII_MEMORY_DB_PATH", value_name = "PATH")]
     db: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -115,7 +116,10 @@ struct SetOutput {
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
-    let database_path = cli.db.unwrap_or_else(default_database_path);
+    let database_path = cli
+        .db
+        .or_else(|| env::var_os("MII_MEMORY_DB").map(PathBuf::from))
+        .unwrap_or_else(default_database_path);
     let mut store = MemoryStore::open(&database_path)?;
 
     match cli.command {

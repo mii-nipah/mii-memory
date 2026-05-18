@@ -481,21 +481,7 @@ fn conversion_error(error: anyhow::Error, field: &'static str) -> rusqlite::Erro
 }
 
 pub fn default_database_path() -> PathBuf {
-    if let Ok(data_home) = env::var("XDG_DATA_HOME") {
-        return PathBuf::from(data_home)
-            .join("mii-memory")
-            .join("memory.sqlite3");
-    }
-
-    if let Ok(home) = env::var("HOME") {
-        return PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("mii-memory")
-            .join("memory.sqlite3");
-    }
-
-    PathBuf::from(".mii-memory.sqlite3")
+    PathBuf::from(".mii-memory.db")
 }
 
 pub fn infer_mode_ref(mode: MemoryMode, explicit: Option<String>) -> Result<Option<String>> {
@@ -754,5 +740,10 @@ mod tests {
         assert_eq!(other.len(), 1);
         assert_eq!(other[0].content, "other session");
         Ok(())
+    }
+
+    #[test]
+    fn default_database_path_matches_spec() {
+        assert_eq!(default_database_path(), PathBuf::from(".mii-memory.db"));
     }
 }
