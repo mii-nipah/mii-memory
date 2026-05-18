@@ -47,6 +47,11 @@ During the set operation, if we find a memory with sufficiently high similarity,
 
 During retrieval, both scores are taken into account, so a memory that has a high positive score but also a high negative score might not be as relevant as a memory with a lower positive score but also a much lower negative score.
 
+## alerts
+A very interesting feature of mii-memory is the possibility to set special alert memories, which are basically memories that expire the moment they are retrieved. They are not stored the same way as normal memories, and are really only ever tied to agent sessions. They can be used for example by agents to setup a "reminder" for themselves pre-compaction time, and you could put them as a hook after compaction to make the model instantly remember something he configured as an alert.
+
+Alerts don't possess tags nor embeddings, nor scores or anything more complex, they are only composed of the reference to the session they belong to and the content.
+
 ## project
 
 mii-memory is both a unix-like CLI tool and an MCP (Model Context Protocol), which means it can be used both as a standalone tool and also as a service that agents can interact with through the MCP protocol.
@@ -55,6 +60,8 @@ mii-memory is both a unix-like CLI tool and an MCP (Model Context Protocol), whi
 * `mii-memory set <content> [--mode <mode>] [<mode_ref>] [--tag <tag> ... at least 1 is expected] [--expiration-condition <expiration_condition> <expiration_value>] [--metadata <metadata>]`
 * `mii-memory get <query> [--tag|--p-tag <tag> ...] [--n-tag <tag> ...] [--limit <limit>] [--offset <offset>]`
 * `mii-memory list-tags [--filter <filter>]`
+* `mii-memory alert set <session_ref> <content>`
+* `mii-memory alerts <session_ref>`
 
 ## mcp
 mii-memory can also run as a service that agents can interact with through the MCP protocol.
@@ -63,3 +70,5 @@ Differently from the CLI, the MCP commands should not contain explicit reference
 * `memory_set`
 * `memory_get`
 * `list_tags`
+* `alert_set`
+* `alerts_get`
