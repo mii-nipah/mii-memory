@@ -1,6 +1,21 @@
 use serde_json::json;
 
 pub const EMBEDDING_DIMENSIONS: usize = 128;
+pub const EMBEDDED_MODEL_SIZE: usize = 23_046_789;
+pub const EMBEDDED_MODEL_SHA256: &str =
+    "b941bf19f1f1283680f449fa6a7336bb5600bdcd5f84d10ddc5cd72218a0fd21";
+
+#[used]
+pub static EMBEDDED_MODEL_BYTES: [u8; EMBEDDED_MODEL_SIZE] =
+    *include_bytes!("../weights/minilm_model_quint8_avx2.onnx");
+
+pub fn embedded_model_size() -> usize {
+    EMBEDDED_MODEL_BYTES.len()
+}
+
+pub fn embedded_model_bytes() -> &'static [u8] {
+    &EMBEDDED_MODEL_BYTES
+}
 
 pub fn embed_text(text: &str) -> Vec<f32> {
     let mut embedding = vec![0.0; EMBEDDING_DIMENSIONS];
@@ -117,6 +132,7 @@ fn normalize(embedding: &mut [f32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
 
     #[test]
     fn related_text_scores_higher_than_unrelated_text() {
@@ -125,5 +141,13 @@ mod tests {
         let unrelated = embed_text("fresh bread and ceramic cups");
 
         assert!(cosine_similarity(&query, &related) > cosine_similarity(&query, &unrelated));
+    }
+
+    #[test]
+    fn minilm_model_is_embedded() {
+        let hash = Sha256::digest(embedded_model_bytes());
+
+        assert_eq!(embedded_model_size(), EMBEDDED_MODEL_SIZE);
+        assert_eq!(hex::encode(hash), EMBEDDED_MODEL_SHA256);
     }
 }
