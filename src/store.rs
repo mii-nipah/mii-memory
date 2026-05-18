@@ -114,9 +114,10 @@ impl MemoryStore {
         let input = normalize_set_memory(input)?;
         let now = Utc::now();
         let created_at = now.to_rfc3339();
-        let content_embedding = embed_text(&input.content);
+        let content_embedding =
+            embed_text(&input.content).context("failed to embed memory content")?;
         let tag_text = input.tags.join(" ");
-        let tag_embedding = embed_text(&tag_text);
+        let tag_embedding = embed_text(&tag_text).context("failed to embed memory tags")?;
         let combined_embedding = blend(&content_embedding, &tag_embedding);
         let file_fingerprint = fingerprint_for_condition(
             input.expiration_condition,
@@ -172,7 +173,7 @@ impl MemoryStore {
     pub fn get(&mut self, options: SearchOptions) -> Result<Vec<MemorySearchResult>> {
         let options = normalize_search_options(options);
         let now = Utc::now();
-        let query_embedding = embed_text(&options.query);
+        let query_embedding = embed_text(&options.query).context("failed to embed memory query")?;
         let query_lower = options.query.to_ascii_lowercase();
         let mut scored = Vec::new();
 
@@ -237,7 +238,10 @@ impl MemoryStore {
         let mut summaries = std::collections::BTreeMap::<String, i64>::new();
         let filter = filter.map(str::trim).filter(|filter| !filter.is_empty());
         let filter_lower = filter.map(str::to_ascii_lowercase);
-        let filter_embedding = filter.map(embed_text);
+        let filter_embedding = filter
+            .map(embed_text)
+            .transpose()
+            .context("failed to embed tag filter")?;
 
         for memory in self.load_memories()? {
             if memory.is_expired(now) {
@@ -247,12 +251,13 @@ impl MemoryStore {
             for tag in memory.tags {
                 if let Some(filter_lower) = &filter_lower {
                     let tag_matches_text = tag.contains(filter_lower);
-                    let tag_matches_embedding = filter_embedding
-                        .as_ref()
-                        .map(|filter_embedding| {
-                            cosine_similarity(filter_embedding, &embed_text(&tag)) >= 0.2
-                        })
-                        .unwrap_or(false);
+                    let tag_matches_embedding = if let Some(filter_embedding) = &filter_embedding {
+                        let tag_embedding =
+                            embed_text(&tag).context("failed to embed memory tag")?;
+                        cosine_similarity(filter_embedding, &tag_embedding) >= 0.2
+                    } else {
+                        false
+                    };
 
                     if !tag_matches_text && !tag_matches_embedding {
                         continue;
