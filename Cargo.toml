@@ -2,6 +2,10 @@
 name = "mii-memory"
 version = "0.1.0"
 edition = "2024"
+description = "A local-first memory store for AI agents with CLI, MCP server, and web explorer interfaces."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mii-nipah/mii-memory"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
