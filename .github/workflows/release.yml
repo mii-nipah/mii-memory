@@ -52,11 +52,14 @@ jobs:
         run: |
           target=$(rustc -vV | sed -n 's/^host: //p')
           binary="mii-memory-$target"
-          mkdir -p dist
-          cp target/release/mii-memory "dist/$binary"
-          tar -C dist -czf "dist/$binary.tar.gz" "$binary"
-          sha256sum "dist/$binary.tar.gz" > "dist/$binary.tar.gz.sha256"
+          artifact_dir="$RUNNER_TEMP/mii-memory-dist"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          cp target/release/mii-memory "$artifact_dir/$binary"
+          tar -C "$artifact_dir" -czf "$artifact_dir/$binary.tar.gz" "$binary"
+          sha256sum "$artifact_dir/$binary.tar.gz" > "$artifact_dir/$binary.tar.gz.sha256"
           echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "artifact_dir=$artifact_dir" >> "$GITHUB_OUTPUT"
 
       - name: Test crates.io build
         if: steps.tag_check.outputs.exists == 'false'
@@ -86,5 +89,5 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "${{ steps.version.outputs.tag }}" \
             --generate-notes \
-            dist/mii-memory-${{ steps.package.outputs.target }}.tar.gz \
-            dist/mii-memory-${{ steps.package.outputs.target }}.tar.gz.sha256
+            "${{ steps.package.outputs.artifact_dir }}/mii-memory-${{ steps.package.outputs.target }}.tar.gz" \
+            "${{ steps.package.outputs.artifact_dir }}/mii-memory-${{ steps.package.outputs.target }}.tar.gz.sha256"
