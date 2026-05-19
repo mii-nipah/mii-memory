@@ -330,25 +330,34 @@ impl MemoryStore {
         let session_ref = normalize_required_text(session_ref.into(), "alert session_ref")?;
         let transaction = self.connection.transaction()?;
         let alerts = {
-            let mut statement = transaction.prepare(
-                "SELECT session_ref, content FROM alerts WHERE session_ref = ?1 ORDER BY id",
-            )?;
-            let rows = statement.query_map(params![session_ref], |row| {
-                Ok(Alert {
-                    session_ref: row.get(0)?,
-                    content: row.get(1)?,
-                })
+            let mut statement =
+                transaction.prepare("SELECT id, session_ref, content FROM alerts ORDER BY id")?;
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    Alert {
+                        session_ref: row.get(1)?,
+                        content: row.get(2)?,
+                    },
+                ))
             })?;
 
-            rows.collect::<Result<Vec<_>, _>>()?
+            rows.filter_map(|row| match row {
+                Ok((id, alert)) if session_refs_share_lineage(&session_ref, &alert.session_ref) => {
+                    Some(Ok((id, alert)))
+                }
+                Ok(_) => None,
+                Err(error) => Some(Err(error)),
+            })
+            .collect::<Result<Vec<_>, _>>()?
         };
 
-        transaction.execute(
-            "DELETE FROM alerts WHERE session_ref = ?1",
-            params![session_ref],
-        )?;
+        for (id, _) in &alerts {
+            transaction.execute("DELETE FROM alerts WHERE id = ?1", params![id])?;
+        }
+
         transaction.commit()?;
-        Ok(alerts)
+        Ok(alerts.into_iter().map(|(_, alert)| alert).collect())
     }
 
     pub fn browse(&self, options: BrowseOptions) -> Result<Vec<MemoryEntry>> {
@@ -737,8 +746,24 @@ fn normalize_search_options(mut options: SearchOptions) -> SearchOptions {
     options.query = options.query.trim().to_string();
     options.positive_tags = normalize_tags(&options.positive_tags);
     options.negative_tags = normalize_tags(&options.negative_tags);
+    options.mode_ref = options
+        .mode_ref
+        .map(|mode_ref| mode_ref.trim().to_string())
+        .filter(|mode_ref| !mode_ref.is_empty());
     options.limit = options.limit.max(1);
     options
+}
+
+fn session_refs_share_lineage(requested_ref: &str, stored_ref: &str) -> bool {
+    requested_ref == stored_ref
+        || session_ref_is_ancestor(requested_ref, stored_ref)
+        || session_ref_is_ancestor(stored_ref, requested_ref)
+}
+
+fn session_ref_is_ancestor(ancestor: &str, descendant: &str) -> bool {
+    descendant
+        .strip_prefix(ancestor)
+        .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn score_memory(
@@ -798,7 +823,13 @@ impl MemoryRecord {
         }
 
         if let Some(mode_ref) = mode_ref {
-            return self.mode_ref.as_deref() == Some(mode_ref);
+            return self.mode_ref.as_deref().is_some_and(|stored_ref| {
+                if self.mode == MemoryMode::Session {
+                    session_refs_share_lineage(mode_ref, stored_ref)
+                } else {
+                    stored_ref == mode_ref
+                }
+            });
         }
 
         true
@@ -831,6 +862,13 @@ mod tests {
             expiration_value: None,
             metadata: None,
         }
+    }
+
+    fn session_memory(content: &str, session_ref: &str) -> SetMemory {
+        let mut input = memory(content, &["lineage"]);
+        input.mode = MemoryMode::Session;
+        input.mode_ref = Some(session_ref.to_string());
+        input
     }
 
     #[test]
@@ -925,6 +963,73 @@ mod tests {
         assert!(second.is_empty());
         assert_eq!(other.len(), 1);
         assert_eq!(other[0].content, "other session");
+        Ok(())
+    }
+
+    #[test]
+    fn session_memories_follow_sub_session_lineage() -> Result<()> {
+        let mut store = MemoryStore::in_memory()?;
+        store.set(session_memory("lineage parent note", "parent"))?;
+        store.set(session_memory("lineage child note", "parent/child"))?;
+        store.set(session_memory(
+            "lineage grandchild note",
+            "parent/child/grandchild",
+        ))?;
+        store.set(session_memory("lineage sibling note", "parent/sibling"))?;
+
+        let child_results = store.get(SearchOptions {
+            query: "lineage".to_string(),
+            mode: Some(MemoryMode::Session),
+            mode_ref: Some("parent/child".to_string()),
+            limit: 10,
+            ..SearchOptions::default()
+        })?;
+        let child_contents = child_results
+            .iter()
+            .map(|result| result.content.as_str())
+            .collect::<Vec<_>>();
+        assert!(child_contents.contains(&"lineage parent note"));
+        assert!(child_contents.contains(&"lineage child note"));
+        assert!(child_contents.contains(&"lineage grandchild note"));
+        assert!(!child_contents.contains(&"lineage sibling note"));
+
+        let parent_results = store.get(SearchOptions {
+            query: "lineage child".to_string(),
+            mode: Some(MemoryMode::Session),
+            mode_ref: Some("parent".to_string()),
+            limit: 10,
+            ..SearchOptions::default()
+        })?;
+        assert!(
+            parent_results
+                .iter()
+                .any(|result| result.content == "lineage child note")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn alerts_follow_sub_session_lineage_and_remain_one_shot() -> Result<()> {
+        let mut store = MemoryStore::in_memory()?;
+        store.set_alert("parent", "parent alert")?;
+        store.set_alert("parent/child", "child alert")?;
+        store.set_alert("parent/sibling", "sibling alert")?;
+
+        let child_alerts = store.get_alerts("parent/child")?;
+        let child_contents = child_alerts
+            .iter()
+            .map(|alert| alert.content.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(child_contents, vec!["parent alert", "child alert"]);
+        assert!(store.get_alerts("parent/child")?.is_empty());
+
+        let parent_alerts = store.get_alerts("parent")?;
+        let parent_contents = parent_alerts
+            .iter()
+            .map(|alert| alert.content.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(parent_contents, vec!["sibling alert"]);
+        assert!(store.get_alerts("parent")?.is_empty());
         Ok(())
     }
 

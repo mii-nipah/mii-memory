@@ -40,6 +40,10 @@ In query time, agents can then list available tags, filter them, filter by text 
 We also embed (binary) a very small CPU optimized version of the popular MiniLM model, and while storing data we create vector embeddings for the content and the tags, so at query time the results are not only filtered by precise matches, but also by semantic similarity.
 It's also possible to use tags to negatively filter results, for example by including a tag in the negative filter, all memories with that tag will score lower in the results, thus being only found in the end of the results or not at all if limited.
 
+## sub-sessions
+mii-memory also supports the concept of sub-sessions, which are basically sessions that are tied to a parent session. This can be useful for example in a conversation with an agent, where you might want to fork it or the agent invokes a sub-agent. By using a sub-session, the agent will still be able to retrieve memories and alerts that are from the parent session, and the parent session will also be able to read from the sub-session's memories as if they were its own.
+A subsession is created by simply using the parent session reference id before the sub-session id when specifying it to the command, separated by a slash, for example `parent-session/sub-session`. This way the system will be able to infer the parent-child relationship between the sessions and handle memory retrieval accordingly.
+
 ## relevance
 Unless an expiration is specified at insertion time, memories are never deleted, however they can become irrelevant, they can fade.
 Memories have 2 intrinsic properties on them, positive and negative scores. When a memory is retrieved, it receives a positive score (according to the rank, the lower the gain in score).
