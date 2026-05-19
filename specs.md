@@ -43,6 +43,7 @@ It's also possible to use tags to negatively filter results, for example by incl
 ## sub-sessions
 mii-memory also supports the concept of sub-sessions, which are basically sessions that are tied to a parent session. This can be useful for example in a conversation with an agent, where you might want to fork it or the agent invokes a sub-agent. By using a sub-session, the agent will still be able to retrieve memories and alerts that are from the parent session, and the parent session will also be able to read from the sub-session's memories as if they were its own.
 A subsession is created by simply using the parent session reference id before the sub-session id when specifying it to the command, separated by a slash, for example `parent-session/sub-session`. This way the system will be able to infer the parent-child relationship between the sessions and handle memory retrieval accordingly.
+When `MII_MEMORY_SESSION_PARENT` is set, mii-memory treats that value as the required parent for session references inferred by the CLI or MCP server. For example, if `MII_MEMORY_SESSION_PARENT=parent-session` and the current session is `sub-session`, the effective session reference becomes `parent-session/sub-session`. Session refs that are already under the configured parent are left unchanged.
 
 ## relevance
 Unless an expiration is specified at insertion time, memories are never deleted, however they can become irrelevant, they can fade.
@@ -69,6 +70,7 @@ mii-memory is both a unix-like CLI tool and an MCP (Model Context Protocol), whi
 
 ## configuration
 * `--db <path>` or `MII_MEMORY_DB=<path>`: specify the path to the sqlite database file. If not specified, it defaults to `.mii-memory.db` in the current directory.
+* `MII_MEMORY_SESSION_PARENT=<session_ref>`: require inferred CLI and MCP session references to be nested under the given parent session reference.
 
 ## mcp
 mii-memory can also run as a service that agents can interact with through the MCP protocol.

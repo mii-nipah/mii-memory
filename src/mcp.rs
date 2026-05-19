@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::model::{ExpirationCondition, MemoryMode};
-use crate::store::{MemoryStore, SearchOptions, SetMemory, infer_mode_ref};
+use crate::store::{MemoryStore, SearchOptions, SetMemory, infer_mode_ref, infer_session_ref};
 
 pub fn serve(mut store: MemoryStore, input: impl BufRead, mut output: impl Write) -> Result<()> {
     let context = ServerContext::new();
@@ -71,7 +71,8 @@ struct ServerContext {
 impl ServerContext {
     fn new() -> Self {
         Self {
-            session_ref: Uuid::new_v4().to_string(),
+            session_ref: infer_session_ref(Some(Uuid::new_v4().to_string()))
+                .expect("generated MCP session ref should be valid"),
         }
     }
 }
@@ -379,6 +380,19 @@ mod tests {
             Some("test-session".to_string())
         );
         assert_eq!(infer_mcp_mode_ref(&context, MemoryMode::Global)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn mcp_session_refs_can_include_required_parent() -> Result<()> {
+        let context = ServerContext {
+            session_ref: "parent/test-session".to_string(),
+        };
+
+        assert_eq!(
+            infer_mcp_mode_ref(&context, MemoryMode::Session)?,
+            Some("parent/test-session".to_string())
+        );
         Ok(())
     }
 

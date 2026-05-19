@@ -92,7 +92,7 @@ Feature snapshot:
 | --- | --- | --- |
 | `global` | Preferences and facts useful everywhere. | None. |
 | `workspace` | Project-specific memory. | Defaults to the current directory when omitted. |
-| `session` | Conversation or agent-run memory. | Defaults to `MII_MEMORY_SESSION`, then `MCP_SESSION_ID`, then `default`. |
+| `session` | Conversation or agent-run memory. | Defaults to `MII_MEMORY_SESSION`, then `MCP_SESSION_ID`, then `default`; `MII_MEMORY_SESSION_PARENT` prefixes the inferred reference when set. |
 
 MCP calls infer the mode reference for the current server process, so agent tools only choose the mode.
 
@@ -137,6 +137,8 @@ mii-memory alerts my-session
 ```
 
 Session references share lineage. A session such as `parent/child` can see alerts and session memories tied to `parent`, and the parent can see child entries.
+
+Set `MII_MEMORY_SESSION_PARENT=parent` to require inferred session references to live under that parent. For example, a CLI session of `child` becomes `parent/child`, and an MCP server's generated process session also becomes a child of `parent`. Already-qualified refs such as `parent/child` are not prefixed again.
 
 ## CLI Reference
 
@@ -234,7 +236,7 @@ For simple scripting, the server also accepts newline-delimited direct commands:
 printf '%s\n' '{"command":"list_tags","arguments":{}}' | mii-memory mcp
 ```
 
-MCP session references are generated per server process. `workspace` mode references are inferred from the current directory, and `session` mode references use that process session ID.
+MCP session references are generated per server process. `workspace` mode references are inferred from the current directory, and `session` mode references use that process session ID. When `MII_MEMORY_SESSION_PARENT` is set, the generated MCP session is nested under that parent.
 
 ## Explorer
 
@@ -259,6 +261,7 @@ The UI can:
 | `MII_MEMORY_DB` | All commands | Used when `--db` is not provided. |
 | `MII_MEMORY_SESSION` | CLI session scope | Used to infer session `mode_ref`. |
 | `MCP_SESSION_ID` | CLI session scope | Fallback session ID when `MII_MEMORY_SESSION` is not set. |
+| `MII_MEMORY_SESSION_PARENT` | CLI and MCP session scope | Prefixes inferred or explicit session refs unless they are already under that parent. |
 
 If no database path is configured, mii-memory creates or opens `.mii-memory.db` in the current directory.
 

@@ -15,6 +15,9 @@ use crate::model::{ExpirationCondition, MemoryMode, normalize_tags};
 
 const SCHEMA_VERSION: i64 = 2;
 const SIMILAR_MEMORY_THRESHOLD: f32 = 0.72;
+const SESSION_ENV: &str = "MII_MEMORY_SESSION";
+const SESSION_PARENT_ENV: &str = "MII_MEMORY_SESSION_PARENT";
+const MCP_SESSION_ENV: &str = "MCP_SESSION_ID";
 
 pub struct MemoryStore {
     connection: Connection,
@@ -207,7 +210,7 @@ impl MemoryStore {
     }
 
     pub fn get(&mut self, options: SearchOptions) -> Result<Vec<MemorySearchResult>> {
-        let options = normalize_search_options(options);
+        let options = normalize_search_options(options)?;
         let now = Utc::now();
         let query_embedding = embed_text(&options.query).context("failed to embed memory query")?;
         let query_lower = options.query.to_ascii_lowercase();
@@ -315,7 +318,7 @@ impl MemoryStore {
         session_ref: impl Into<String>,
         content: impl Into<String>,
     ) -> Result<i64> {
-        let session_ref = normalize_required_text(session_ref.into(), "alert session_ref")?;
+        let session_ref = session_ref_with_configured_parent(session_ref.into())?;
         let content = normalize_required_text(content.into(), "alert content")?;
 
         self.connection.execute(
@@ -327,7 +330,7 @@ impl MemoryStore {
     }
 
     pub fn get_alerts(&mut self, session_ref: impl Into<String>) -> Result<Vec<Alert>> {
-        let session_ref = normalize_required_text(session_ref.into(), "alert session_ref")?;
+        let session_ref = session_ref_with_configured_parent(session_ref.into())?;
         let transaction = self.connection.transaction()?;
         let alerts = {
             let mut statement =
@@ -680,31 +683,31 @@ pub fn default_database_path() -> PathBuf {
 }
 
 pub fn infer_mode_ref(mode: MemoryMode, explicit: Option<String>) -> Result<Option<String>> {
-    if mode == MemoryMode::Global {
-        return Ok(None);
-    }
-
-    if let Some(explicit) = explicit
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        return Ok(Some(explicit));
-    }
-
     match mode {
         MemoryMode::Global => Ok(None),
-        MemoryMode::Workspace => Ok(Some(
-            env::current_dir()
-                .context("failed to infer workspace mode_ref from current directory")?
-                .to_string_lossy()
-                .into_owned(),
-        )),
-        MemoryMode::Session => Ok(Some(
-            env::var("MII_MEMORY_SESSION")
-                .or_else(|_| env::var("MCP_SESSION_ID"))
-                .unwrap_or_else(|_| "default".to_string()),
-        )),
+        MemoryMode::Workspace => {
+            if let Some(explicit) = normalize_optional_text(explicit) {
+                return Ok(Some(explicit));
+            }
+
+            Ok(Some(
+                env::current_dir()
+                    .context("failed to infer workspace mode_ref from current directory")?
+                    .to_string_lossy()
+                    .into_owned(),
+            ))
+        }
+        MemoryMode::Session => Ok(Some(infer_session_ref(explicit)?)),
     }
+}
+
+pub fn infer_session_ref(explicit: Option<String>) -> Result<String> {
+    let session_ref = normalize_optional_text(explicit)
+        .or_else(|| env_text(SESSION_ENV))
+        .or_else(|| env_text(MCP_SESSION_ENV))
+        .unwrap_or_else(|| "default".to_string());
+
+    session_ref_with_configured_parent(session_ref)
 }
 
 fn normalize_set_memory(mut input: SetMemory) -> Result<SetMemory> {
@@ -742,7 +745,36 @@ fn normalize_required_text(mut value: String, field: &'static str) -> Result<Str
     Ok(value)
 }
 
-fn normalize_search_options(mut options: SearchOptions) -> SearchOptions {
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn env_text(name: &str) -> Option<String> {
+    env::var(name)
+        .ok()
+        .and_then(|value| normalize_optional_text(Some(value)))
+}
+
+fn session_ref_with_configured_parent(session_ref: String) -> Result<String> {
+    session_ref_with_parent(session_ref, env_text(SESSION_PARENT_ENV))
+}
+
+fn session_ref_with_parent(session_ref: String, parent_ref: Option<String>) -> Result<String> {
+    let session_ref = normalize_required_text(session_ref, "session_ref")?;
+    let Some(parent_ref) = normalize_optional_text(parent_ref) else {
+        return Ok(session_ref);
+    };
+
+    if session_ref == parent_ref || session_ref_is_ancestor(&parent_ref, &session_ref) {
+        return Ok(session_ref);
+    }
+
+    Ok(format!("{parent_ref}/{session_ref}"))
+}
+
+fn normalize_search_options(mut options: SearchOptions) -> Result<SearchOptions> {
     options.query = options.query.trim().to_string();
     options.positive_tags = normalize_tags(&options.positive_tags);
     options.negative_tags = normalize_tags(&options.negative_tags);
@@ -750,8 +782,11 @@ fn normalize_search_options(mut options: SearchOptions) -> SearchOptions {
         .mode_ref
         .map(|mode_ref| mode_ref.trim().to_string())
         .filter(|mode_ref| !mode_ref.is_empty());
+    if options.mode == Some(MemoryMode::Session) {
+        options.mode_ref = Some(infer_session_ref(options.mode_ref)?);
+    }
     options.limit = options.limit.max(1);
-    options
+    Ok(options)
 }
 
 fn session_refs_share_lineage(requested_ref: &str, stored_ref: &str) -> bool {
@@ -1004,6 +1039,27 @@ mod tests {
             parent_results
                 .iter()
                 .any(|result| result.content == "lineage child note")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn session_parent_prefix_is_applied_once() -> Result<()> {
+        assert_eq!(
+            session_ref_with_parent("child".to_string(), Some("parent".to_string()))?,
+            "parent/child"
+        );
+        assert_eq!(
+            session_ref_with_parent("parent/child".to_string(), Some("parent".to_string()))?,
+            "parent/child"
+        );
+        assert_eq!(
+            session_ref_with_parent("parent".to_string(), Some("parent".to_string()))?,
+            "parent"
+        );
+        assert_eq!(
+            session_ref_with_parent("other".to_string(), Some("parent/child".to_string()))?,
+            "parent/child/other"
         );
         Ok(())
     }
