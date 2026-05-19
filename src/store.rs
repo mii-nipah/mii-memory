@@ -903,6 +903,7 @@ impl MemoryRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(has_embedded_embeddings)]
     use std::io::Write;
 
     fn memory(content: &str, tags: &[&str]) -> SetMemory {
@@ -917,6 +918,7 @@ mod tests {
         }
     }
 
+    #[cfg(has_embedded_embeddings)]
     fn session_memory(content: &str, session_ref: &str) -> SetMemory {
         let mut input = memory(content, &["lineage"]);
         input.mode = MemoryMode::Session;
@@ -924,6 +926,7 @@ mod tests {
         input
     }
 
+    #[cfg(has_embedded_embeddings)]
     #[test]
     fn set_get_and_list_tags_round_trip() -> Result<()> {
         let mut store = MemoryStore::in_memory()?;
@@ -943,6 +946,23 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(not(has_embedded_embeddings))]
+    #[test]
+    fn set_requires_embeddings_when_not_configured() -> Result<()> {
+        let mut store = MemoryStore::in_memory()?;
+        let error = store
+            .set(memory("Rust sqlite memory backend", &["rust", "sqlite"]))
+            .unwrap_err();
+
+        assert!(
+            error
+                .chain()
+                .any(|cause| cause.to_string().contains("--embeddings <PATH>"))
+        );
+        Ok(())
+    }
+
+    #[cfg(has_embedded_embeddings)]
     #[test]
     fn usage_expiration_hides_memory_after_limit() -> Result<()> {
         let mut store = MemoryStore::in_memory()?;
@@ -965,6 +985,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(has_embedded_embeddings)]
     #[test]
     fn file_pristine_expiration_tracks_changes() -> Result<()> {
         let directory = tempfile::tempdir()?;
@@ -1019,6 +1040,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(has_embedded_embeddings)]
     #[test]
     fn session_memories_follow_sub_session_lineage() -> Result<()> {
         let mut store = MemoryStore::in_memory()?;

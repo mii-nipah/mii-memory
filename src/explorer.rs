@@ -308,7 +308,7 @@ fn write_response(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, has_embedded_embeddings))]
 mod tests {
     use super::*;
     use std::io::{Read, Write};

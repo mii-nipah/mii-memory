@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 
+use crate::embedding::configure_embeddings_path;
 use crate::explorer;
 use crate::mcp;
 use crate::model::{ExpirationCondition, MemoryMode};
@@ -16,6 +17,14 @@ use crate::store::{MemoryStore, SearchOptions, SetMemory, default_database_path}
 pub struct Cli {
     #[arg(long, global = true, env = "MII_MEMORY_DB", value_name = "PATH")]
     db: Option<PathBuf>,
+
+    #[arg(
+        long,
+        global = true,
+        env = "MII_MEMORY_EMBEDDINGS",
+        value_name = "PATH"
+    )]
+    embeddings: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Command,
@@ -126,6 +135,10 @@ struct SetOutput {
 
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(embeddings_path) = cli.embeddings {
+        configure_embeddings_path(embeddings_path)?;
+    }
+
     let database_path = cli.db.unwrap_or_else(default_database_path);
     let mut store = MemoryStore::open(&database_path)?;
 

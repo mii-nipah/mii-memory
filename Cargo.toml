@@ -7,6 +7,12 @@ description = "A local-first memory store for AI agents with CLI, MCP server, an
 license = "BSD-3-Clause"
 repository = "https://github.com/mii-nipah/mii-memory"
 readme = "README.md"
+build = "build.rs"
+exclude = ["weights/*"]
+
+[features]
+default = ["embedded"]
+embedded = []
 
 [dependencies]
 anyhow = "1.0"

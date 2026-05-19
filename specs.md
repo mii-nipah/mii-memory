@@ -37,7 +37,7 @@ Agents are recommended to chose freely the best tags for their files, which make
 
 ## search
 In query time, agents can then list available tags, filter them, filter by text directly or even both, and then receive what it's most relevant for them.
-We also embed (binary) a very small CPU optimized version of the popular MiniLM model, and while storing data we create vector embeddings for the content and the tags, so at query time the results are not only filtered by precise matches, but also by semantic similarity.
+We embed a very small CPU optimized version of the popular MiniLM model in normal source, git, and GitHub Release binary builds, and while storing data we create vector embeddings for the content and the tags, so at query time the results are not only filtered by precise matches, but also by semantic similarity. The crates.io package is published without the bundled model files to stay under registry upload limits; those builds require `--embeddings <path>` or `MII_MEMORY_EMBEDDINGS=<path>` pointing to a directory containing `minilm_model_quint8_avx2.onnx` and `vocab.txt`.
 It's also possible to use tags to negatively filter results, for example by including a tag in the negative filter, all memories with that tag will score lower in the results, thus being only found in the end of the results or not at all if limited.
 
 ## sub-sessions
@@ -70,6 +70,7 @@ mii-memory is both a unix-like CLI tool and an MCP (Model Context Protocol), whi
 
 ## configuration
 * `--db <path>` or `MII_MEMORY_DB=<path>`: specify the path to the sqlite database file. If not specified, it defaults to `.mii-memory.db` in the current directory.
+* `--embeddings <path>` or `MII_MEMORY_EMBEDDINGS=<path>`: specify external MiniLM files for binaries built without embedded embeddings. The path may be the directory containing `minilm_model_quint8_avx2.onnx` and `vocab.txt`, or the ONNX file when `vocab.txt` is next to it.
 * `MII_MEMORY_SESSION=<session_ref>`: set the inferred CLI session reference and override the generated MCP server session reference.
 * `MII_MEMORY_SESSION_PARENT=<session_ref>`: require inferred CLI and MCP session references to be nested under the given parent session reference.
 

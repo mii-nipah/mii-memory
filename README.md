@@ -1,6 +1,6 @@
 # mii-memory
 
-mii-memory is a local-first memory store for AI agents. It gives agents a small, durable place to keep useful facts across global, workspace, and session scopes, then retrieve them later with tag filters, text matching, and semantic ranking from an embedded MiniLM model.
+mii-memory is a local-first memory store for AI agents. It gives agents a small, durable place to keep useful facts across global, workspace, and session scopes, then retrieve them later with tag filters, text matching, and semantic ranking from a small MiniLM model.
 
 It can run as a Unix-like CLI, a stdio MCP server, or a small built-in web explorer for browsing the SQLite store.
 
@@ -25,6 +25,8 @@ Build the binary:
 ```sh
 cargo build --release
 ```
+
+Builds from this repository include the MiniLM model in the binary by default. The crates.io package is lean enough to publish and does not include the model files, so binaries installed from crates.io need `--embeddings <PATH>` or `MII_MEMORY_EMBEDDINGS=<PATH>` pointing to a directory with `minilm_model_quint8_avx2.onnx` and `vocab.txt`.
 
 Store a memory in a local SQLite database:
 
@@ -68,6 +70,18 @@ For everyday use, install the binary from this checkout:
 cargo install --path .
 ```
 
+Other install options:
+
+```sh
+# Full embedded binary from the git repository.
+cargo install --git https://github.com/mii-nipah/mii-memory
+
+# Lean crates.io binary; pass --embeddings or MII_MEMORY_EMBEDDINGS when running it.
+cargo install mii-memory --locked
+```
+
+GitHub Releases also provide a prebuilt embedded binary for the release target, which keeps the classic no-extra-files experience without pushing the large model through crates.io.
+
 ## What It Does
 
 mii-memory is designed for agent memory that should outlive a single context window without becoming a giant unstructured log. Each memory has content, tags, a scope, optional metadata, optional expiration rules, and embeddings that make later retrieval less brittle than exact text search alone.
@@ -77,7 +91,7 @@ Feature snapshot:
 - SQLite-backed storage with schema migrations.
 - Global, workspace, and session memory scopes.
 - Required tags for navigation and filtering.
-- Semantic ranking from an embedded 384-dimensional MiniLM model.
+- Semantic ranking from a 384-dimensional MiniLM model embedded by default in source and release builds.
 - Positive and negative relevance scores that evolve as memories are retrieved or superseded.
 - Optional expiration based on time, usage count, file existence, file freshness, or active period.
 - One-shot session alerts for reminders that clear when read.
@@ -258,12 +272,16 @@ The UI can:
 | Setting | Used by | Default |
 | --- | --- | --- |
 | `--db <PATH>` | All commands | Overrides the database path. |
+| `--embeddings <PATH>` | All commands that embed or search memories | Uses external MiniLM files when the binary was built without bundled embeddings. |
 | `MII_MEMORY_DB` | All commands | Used when `--db` is not provided. |
+| `MII_MEMORY_EMBEDDINGS` | All commands that embed or search memories | Environment equivalent of `--embeddings`. |
 | `MII_MEMORY_SESSION` | CLI and MCP session scope | Used to infer CLI session `mode_ref`; overrides the generated MCP server session when set. |
 | `MCP_SESSION_ID` | CLI session scope | Fallback session ID when `MII_MEMORY_SESSION` is not set. |
 | `MII_MEMORY_SESSION_PARENT` | CLI and MCP session scope | Prefixes inferred or explicit session refs unless they are already under that parent. |
 
 If no database path is configured, mii-memory creates or opens `.mii-memory.db` in the current directory.
+
+`--embeddings <PATH>` may point either to a directory containing `minilm_model_quint8_avx2.onnx` and `vocab.txt`, or directly to the ONNX file when `vocab.txt` sits next to it. Repository builds, `cargo install --git`, and GitHub Release binaries embed these files by default; crates.io builds require an external path because crates.io limits upload size.
 
 ## Architecture
 
@@ -274,7 +292,7 @@ flowchart LR
     Explorer[Web explorer] --> Store
     Store --> SQLite[(SQLite database)]
     Store --> Expiration[Expiration checks]
-    Store --> Embeddings[Embedded MiniLM ONNX model]
+    Store --> Embeddings[MiniLM ONNX model]
     Embeddings --> Ranking[Semantic ranking]
     Expiration --> Ranking
     SQLite --> Ranking
@@ -286,12 +304,12 @@ Important modules:
 | --- | --- |
 | `src/cli.rs` | Clap command definitions, argument parsing, and CLI output. |
 | `src/store.rs` | SQLite migrations, writes, reads, scoring, browsing, alerts, and scope inference. |
-| `src/embedding.rs` | Embedded MiniLM model loading, tokenization, vector encoding, and similarity helpers. |
+| `src/embedding.rs` | MiniLM model loading, tokenization, vector encoding, and similarity helpers. |
 | `src/expiration.rs` | Expiration validation and runtime checks. |
 | `src/mcp.rs` | Stdio JSON-RPC/direct-command MCP interface and tool schemas. |
 | `src/explorer.rs` | Minimal HTTP server for the built-in explorer. |
 | `src/explorer/index.html` | Explorer UI. |
-| `weights/` | ONNX model and vocabulary embedded into the binary at compile time. |
+| `weights/` | ONNX model and vocabulary embedded into local, git, and GitHub Release builds. Excluded from crates.io packages. |
 
 The database schema is versioned with SQLite `PRAGMA user_version`. Data changes should be handled through migrations so existing memory stores stay readable.
 
@@ -302,8 +320,11 @@ Common commands:
 ```sh
 cargo fmt
 cargo test
+cargo test --no-default-features
 cargo clippy --all-targets -- -D warnings
 ```
+
+The default feature set includes embedded model assets when `weights/` is present. Use `--no-default-features` to exercise the crates.io build, which compiles without bundled embeddings and expects `--embeddings` at runtime.
 
 Run the CLI during development:
 
