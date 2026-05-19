@@ -710,6 +710,14 @@ pub fn infer_session_ref(explicit: Option<String>) -> Result<String> {
     session_ref_with_configured_parent(session_ref)
 }
 
+pub fn infer_mcp_session_ref(generated: String) -> Result<String> {
+    mcp_session_ref(
+        generated,
+        env_text(SESSION_ENV),
+        env_text(SESSION_PARENT_ENV),
+    )
+}
+
 fn normalize_set_memory(mut input: SetMemory) -> Result<SetMemory> {
     input.content = input.content.trim().to_string();
     if input.content.is_empty() {
@@ -759,6 +767,16 @@ fn env_text(name: &str) -> Option<String> {
 
 fn session_ref_with_configured_parent(session_ref: String) -> Result<String> {
     session_ref_with_parent(session_ref, env_text(SESSION_PARENT_ENV))
+}
+
+fn mcp_session_ref(
+    generated: String,
+    configured_session: Option<String>,
+    parent_ref: Option<String>,
+) -> Result<String> {
+    let session_ref = normalize_optional_text(configured_session).unwrap_or(generated);
+
+    session_ref_with_parent(session_ref, parent_ref)
 }
 
 fn session_ref_with_parent(session_ref: String, parent_ref: Option<String>) -> Result<String> {
@@ -1060,6 +1078,39 @@ mod tests {
         assert_eq!(
             session_ref_with_parent("other".to_string(), Some("parent/child".to_string()))?,
             "parent/child/other"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn mcp_session_ref_uses_configured_session_or_generated_fallback() -> Result<()> {
+        assert_eq!(
+            mcp_session_ref(
+                "generated".to_string(),
+                Some("configured".to_string()),
+                None,
+            )?,
+            "configured"
+        );
+        assert_eq!(
+            mcp_session_ref("generated".to_string(), None, None)?,
+            "generated"
+        );
+        assert_eq!(
+            mcp_session_ref(
+                "generated".to_string(),
+                Some("   ".to_string()),
+                Some("parent".to_string()),
+            )?,
+            "parent/generated"
+        );
+        assert_eq!(
+            mcp_session_ref(
+                "generated".to_string(),
+                Some("configured".to_string()),
+                Some("parent".to_string()),
+            )?,
+            "parent/configured"
         );
         Ok(())
     }

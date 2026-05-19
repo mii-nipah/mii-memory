@@ -236,7 +236,7 @@ For simple scripting, the server also accepts newline-delimited direct commands:
 printf '%s\n' '{"command":"list_tags","arguments":{}}' | mii-memory mcp
 ```
 
-MCP session references are generated per server process. `workspace` mode references are inferred from the current directory, and `session` mode references use that process session ID. When `MII_MEMORY_SESSION_PARENT` is set, the generated MCP session is nested under that parent.
+MCP session references are generated per server process unless `MII_MEMORY_SESSION` is set. `workspace` mode references are inferred from the current directory, and `session` mode references use the configured or generated process session ID. When `MII_MEMORY_SESSION_PARENT` is set, the MCP session is nested under that parent.
 
 ## Explorer
 
@@ -259,7 +259,7 @@ The UI can:
 | --- | --- | --- |
 | `--db <PATH>` | All commands | Overrides the database path. |
 | `MII_MEMORY_DB` | All commands | Used when `--db` is not provided. |
-| `MII_MEMORY_SESSION` | CLI session scope | Used to infer session `mode_ref`. |
+| `MII_MEMORY_SESSION` | CLI and MCP session scope | Used to infer CLI session `mode_ref`; overrides the generated MCP server session when set. |
 | `MCP_SESSION_ID` | CLI session scope | Fallback session ID when `MII_MEMORY_SESSION` is not set. |
 | `MII_MEMORY_SESSION_PARENT` | CLI and MCP session scope | Prefixes inferred or explicit session refs unless they are already under that parent. |
 

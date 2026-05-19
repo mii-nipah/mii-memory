@@ -70,12 +70,14 @@ mii-memory is both a unix-like CLI tool and an MCP (Model Context Protocol), whi
 
 ## configuration
 * `--db <path>` or `MII_MEMORY_DB=<path>`: specify the path to the sqlite database file. If not specified, it defaults to `.mii-memory.db` in the current directory.
+* `MII_MEMORY_SESSION=<session_ref>`: set the inferred CLI session reference and override the generated MCP server session reference.
 * `MII_MEMORY_SESSION_PARENT=<session_ref>`: require inferred CLI and MCP session references to be nested under the given parent session reference.
 
 ## mcp
 mii-memory can also run as a service that agents can interact with through the MCP protocol.
 The MCP commands are the same as the CLI commands, but they are sent as JSON payloads to the service endpoint.
 Differently from the CLI, the MCP commands should not contain explicit references to the mode_ref, only the mode, since the service will be able to infer the mode_ref from the agent's identity and the current session. This reduces the error surface for agents and allows for a more seamless integration with the agent's workflow.
+MCP generates a session reference per server process unless `MII_MEMORY_SESSION` is set, in which case that value is used as the server session reference.
 * `memory_set`
 * `memory_get`
 * `list_tags`
