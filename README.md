@@ -120,6 +120,8 @@ On write, mii-memory embeds both the content and tags, then stores a blended vec
 
 Retrieval increases a memory's positive score. Adding a very similar memory increases the older related memory's negative score, which lets newer or competing information gradually reshape what is considered relevant without deleting history.
 
+Accumulated scores remain intact in storage. Ranking converts their difference into a bounded adjustment: `2 * strength / (abs(strength) + 5)`, where `strength = positive_score - negative_score`. Repeated use still strengthens a memory, with diminishing returns and a maximum adjustment of two points in either direction. Five net points contribute one ranking point; equal positive and negative scores cancel. Semantic similarity contributes up to ten points, so historical popularity cannot overwhelm a substantially better match. Existing databases benefit immediately without resetting counters or rewriting memories.
+
 ### Expiration
 
 Expiration is checked when memories are read or browsed. Supported conditions are:

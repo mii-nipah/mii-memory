@@ -52,6 +52,8 @@ During the set operation, if we find a memory with sufficiently high similarity,
 
 During retrieval, both scores are taken into account, so a memory that has a high positive score but also a high negative score might not be as relevant as a memory with a lower positive score but also a much lower negative score.
 
+The stored counters keep accumulating, while their effect on retrieval is bounded. Let `strength = positive_score - negative_score`; its ranking contribution is `2 * strength / (abs(strength) + 5)`. This preserves reinforcement and cancellation with diminishing returns, limiting the adjustment to two points in either direction against up to ten points of semantic similarity. No database migration or counter reset is required.
+
 ## alerts
 A very interesting feature of mii-memory is the possibility to set special alert memories, which are basically memories that expire the moment they are retrieved. They are not stored the same way as normal memories, and are really only ever tied to agent sessions. They can be used for example by agents to setup a "reminder" for themselves pre-compaction time, and you could put them as a hook after compaction to make the model instantly remember something he configured as an alert.
 
