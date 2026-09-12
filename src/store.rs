@@ -15,6 +15,8 @@ use crate::model::{ExpirationCondition, MemoryMode, normalize_tags};
 
 const SCHEMA_VERSION: i64 = 2;
 const SIMILAR_MEMORY_THRESHOLD: f32 = 0.72;
+const MAX_MEMORY_STRENGTH: f32 = 2.0;
+const MEMORY_STRENGTH_SCALE: f32 = 5.0;
 const SESSION_ENV: &str = "MII_MEMORY_SESSION";
 const SESSION_PARENT_ENV: &str = "MII_MEMORY_SESSION_PARENT";
 const MCP_SESSION_ENV: &str = "MCP_SESSION_ID";
@@ -846,8 +848,10 @@ fn score_memory(
         .count() as f32
         * 4.0;
 
-    semantic + text_bonus + tag_text_bonus + positive_tag_bonus + memory.positive_score
-        - memory.negative_score
+    let strength = memory.positive_score - memory.negative_score;
+    let reinforcement = MAX_MEMORY_STRENGTH * (strength / (strength.abs() + MEMORY_STRENGTH_SCALE));
+
+    semantic + text_bonus + tag_text_bonus + positive_tag_bonus + reinforcement
         - negative_tag_penalty
 }
 
@@ -924,6 +928,113 @@ mod tests {
         input.mode = MemoryMode::Session;
         input.mode_ref = Some(session_ref.to_string());
         input
+    }
+
+    fn scoring_memory(content: &str, embedding: &[f32]) -> MemoryRecord {
+        MemoryRecord {
+            id: 1,
+            content: content.to_string(),
+            mode: MemoryMode::Global,
+            mode_ref: None,
+            tags: Vec::new(),
+            expiration_condition: None,
+            expiration_value: None,
+            metadata: None,
+            combined_embedding: embedding.to_vec(),
+            positive_score: 0.0,
+            negative_score: 0.0,
+            usage_count: 0,
+            created_at: Utc::now(),
+            file_fingerprint: None,
+        }
+    }
+
+    #[test]
+    fn scoring_keeps_relevance_ahead_of_historical_popularity() {
+        let query = [1.0, 0.0];
+        let options = SearchOptions::default();
+        let relevant = scoring_memory("current cache policy", &query);
+        let mut popular = scoring_memory("old billing investigation", &[0.32, 0.94741756]);
+        popular.positive_score = 126.7;
+        popular.negative_score = 1.48;
+
+        assert!(
+            score_memory(&relevant, &query, "current cache policy", &options)
+                > score_memory(&popular, &query, "current cache policy", &options)
+        );
+    }
+
+    #[test]
+    fn scoring_reinforcement_grows_with_diminishing_returns() {
+        let query = [1.0, 0.0];
+        let options = SearchOptions::default();
+        let mut memory = scoring_memory("a relevant memory", &query);
+        let baseline = score_memory(&memory, &query, "", &options);
+        let mut scores = Vec::new();
+
+        for strength in [0.0, 5.0, 10.0, 15.0, 128.0, 10_000.0, f32::MAX] {
+            memory.positive_score = strength;
+            let score = score_memory(&memory, &query, "", &options);
+            assert!(score.is_finite());
+            assert!(score >= baseline && score <= baseline + 2.0);
+            scores.push(score);
+        }
+
+        assert!(scores.windows(2).all(|pair| pair[1] > pair[0]));
+        assert!(scores[1] - scores[0] > scores[2] - scores[1]);
+        assert!(scores[2] - scores[1] > scores[3] - scores[2]);
+    }
+
+    #[test]
+    fn scoring_preserves_opposing_reinforcement() {
+        let query = [1.0, 0.0];
+        let options = SearchOptions::default();
+        let mut memory = scoring_memory("a relevant memory", &query);
+        let baseline = score_memory(&memory, &query, "", &options);
+        memory.positive_score = 50.0;
+        let reinforced = score_memory(&memory, &query, "", &options);
+        memory.negative_score = 25.0;
+        let weakened = score_memory(&memory, &query, "", &options);
+        memory.negative_score = 50.0;
+        let balanced = score_memory(&memory, &query, "", &options);
+        memory.negative_score = 75.0;
+        let penalized = score_memory(&memory, &query, "", &options);
+
+        assert!(reinforced > weakened && weakened > baseline);
+        assert_eq!(balanced, baseline);
+        assert!(penalized < baseline);
+    }
+
+    #[test]
+    fn scoring_keeps_relevant_penalized_memory_retrievable() {
+        let query = [1.0, 0.0];
+        let options = SearchOptions::default();
+        let mut relevant = scoring_memory("current cache policy", &query);
+        relevant.negative_score = 10_000.0;
+        let unrelated = scoring_memory("old billing investigation", &[0.32, 0.94741756]);
+
+        assert!(
+            score_memory(&relevant, &query, "current cache policy", &options)
+                > score_memory(&unrelated, &query, "current cache policy", &options)
+        );
+    }
+
+    #[test]
+    fn scoring_keeps_negative_tag_penalties_effective() {
+        let query = [1.0, 0.0];
+        let options = SearchOptions {
+            negative_tags: vec!["avoid".to_string()],
+            ..SearchOptions::default()
+        };
+        let ordinary = scoring_memory("a relevant memory", &query);
+        let mut popular = ordinary.clone();
+        popular.tags.push("avoid".to_string());
+        popular.positive_score = 10_000.0;
+
+        assert!(
+            score_memory(&ordinary, &query, "", &options)
+                > score_memory(&popular, &query, "", &options)
+        );
     }
 
     #[cfg(has_embedded_embeddings)]
